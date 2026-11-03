@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  sprints-ai-api:
+    build: .
+    container_name: sprints_ai_service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./database:/app/database
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  sprints-n8n:
+    image: n8nio/n8n:latest
+    container_name: sprints_n8n_orchestrator
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Africa/Cairo
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - sprints-ai-api
+    restart: unless-stopped
+
+volumes:
+  n8n_data:

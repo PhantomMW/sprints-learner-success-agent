@@ -1,0 +1,155 @@
+# Sprints Relational Database Schema Design (ERD)
+**Project:** Sprints AI-Powered Learner Success & Support Agent  
+**Component:** Sprint 1 - Practical Data Analytics & Database Architecture  
+**Database Engine:** SQLite / PostgreSQL ANSI Compliant  
+
+---
+
+## 1. Entity-Relationship Diagram (Mermaid)
+
+```mermaid
+erDiagram
+    COHORTS ||--o{ LEARNERS : "enrolls"
+    LEARNERS ||--o{ QUIZ_GRADES : "earns"
+    LEARNERS ||--o{ SUPPORT_TICKETS : "submits"
+    LEARNERS ||--o{ INTERACTION_LOGS : "generates"
+    COURSE_MODULES ||--o{ QUIZ_GRADES : "assesses"
+    COURSE_MODULES ||--o{ SUPPORT_TICKETS : "references"
+
+    COHORTS {
+        varchar(20) cohort_id PK
+        varchar(100) cohort_name
+        varchar(50) track
+        date start_date
+        date end_date
+        timestamp created_at
+    }
+
+    LEARNERS {
+        varchar(20) learner_id PK
+        varchar(20) cohort_id FK
+        varchar(100) full_name
+        varchar(120) email UK
+        varchar(50) cohort_city
+        varchar(20) enrollment_status
+        boolean dropped_out
+        timestamp created_at
+    }
+
+    COURSE_MODULES {
+        varchar(20) module_id PK
+        varchar(100) module_name
+        int sprint_number
+        int week_number
+        varchar(20) difficulty_level
+        varchar(100) instructor_name
+    }
+
+    QUIZ_GRADES {
+        int grade_id PK
+        varchar(20) learner_id FK
+        varchar(20) module_id FK
+        int week_number
+        float score
+        boolean is_makeup
+        timestamp submission_timestamp
+    }
+
+    SUPPORT_TICKETS {
+        varchar(30) ticket_id PK
+        varchar(20) learner_id FK
+        varchar(20) module_id FK
+        text query_text
+        float sentiment_polarity
+        float sentiment_subjectivity
+        varchar(20) status
+        varchar(15) priority
+        boolean escalation_flag
+        timestamp created_at
+        timestamp resolved_at
+    }
+
+    INTERACTION_LOGS {
+        int log_id PK
+        varchar(20) learner_id FK
+        varchar(50) action_type
+        varchar(100) lms_page
+        int session_duration_sec
+        timestamp timestamp
+    }
+```
+
+---
+
+## 2. Table Specifications & Data Dictionary
+
+### 2.1 Table: `cohorts`
+*Represents educational bootcamp cohorts managed by Sprints across MENA.*
+* **`cohort_id`**: VARCHAR(20), PRIMARY KEY. Unique cohort identifier (e.g., `COHORT-AI-01`).
+* **`cohort_name`**: VARCHAR(100), NOT NULL. Full descriptive name of the cohort.
+* **`track`**: VARCHAR(50), NOT NULL. Educational track (e.g., `AI & Machine Learning`, `Data Science`).
+* **`start_date`**: DATE, NOT NULL. Official bootcamp commencement date.
+* **`end_date`**: DATE, NOT NULL. Official capstone presentation and graduation date.
+* **`created_at`**: TIMESTAMP, DEFAULT CURRENT_TIMESTAMP. Audit timestamp.
+
+### 2.2 Table: `learners`
+*Stores student demographic profiles, regional governorate, and enrollment status.*
+* **`learner_id`**: VARCHAR(20), PRIMARY KEY. Unique learner code (e.g., `LRN-1001`).
+* **`cohort_id`**: VARCHAR(20), NOT NULL, FOREIGN KEY referencing `cohorts(cohort_id)`.
+* **`full_name`**: VARCHAR(100), NOT NULL. Learner's full name.
+* **`email`**: VARCHAR(120), NOT NULL, UNIQUE. Contact and authentication handle.
+* **`cohort_city`**: VARCHAR(50), NOT NULL. Egyptian governorate / city (e.g., Cairo, Alexandria, Giza, Assiut).
+* **`enrollment_status`**: VARCHAR(20), NOT NULL. CHECK (`Active`, `Dropped`, `Graduated`, `Suspended`).
+* **`dropped_out`**: BOOLEAN, DEFAULT 0. Ground-truth label for predictive models.
+* **`created_at`**: TIMESTAMP, DEFAULT CURRENT_TIMESTAMP.
+
+### 2.3 Table: `course_modules`
+*Defines curriculum syllabus milestones spanning Sprints 1 through 4.*
+* **`module_id`**: VARCHAR(20), PRIMARY KEY. Module identifier (e.g., `MOD-101`).
+* **`module_name`**: VARCHAR(100), NOT NULL. Topic name (e.g., `Deep Sequence Modeling & PyTorch LSTMs`).
+* **`sprint_number`**: INT, NOT NULL. CHECK (1 to 4).
+* **`week_number`**: INT, NOT NULL. CHECK (1 to 5).
+* **`difficulty_level`**: VARCHAR(20), NOT NULL. CHECK (`Beginner`, `Intermediate`, `Advanced`).
+* **`instructor_name`**: VARCHAR(100), NOT NULL. Lead instructor or mentor.
+
+### 2.4 Table: `quiz_grades`
+*Captures weekly quiz assessments and capstone project submissions.*
+* **`grade_id`**: INTEGER, PRIMARY KEY AUTOINCREMENT.
+* **`learner_id`**: VARCHAR(20), NOT NULL, FOREIGN KEY referencing `learners(learner_id)`.
+* **`module_id`**: VARCHAR(20), NOT NULL, FOREIGN KEY referencing `course_modules(module_id)`.
+* **`week_number`**: INT, NOT NULL. CHECK (1 to 5).
+* **`score`**: REAL, CHECK (0.0 <= score <= 100.0). Missing records indicate unsubmitted assessments.
+* **`is_makeup`**: BOOLEAN, DEFAULT 0. Indicates whether the test was taken during a makeup session.
+* **`submission_timestamp`**: TIMESTAMP, DEFAULT CURRENT_TIMESTAMP.
+
+### 2.5 Table: `support_tickets`
+*Logs student queries received via LMS or the automated n8n Deliberative Agent.*
+* **`ticket_id`**: VARCHAR(30), PRIMARY KEY. Unique ticket ticket number.
+* **`learner_id`**: VARCHAR(20), NOT NULL, FOREIGN KEY referencing `learners(learner_id)`.
+* **`module_id`**: VARCHAR(20), FOREIGN KEY referencing `course_modules(module_id)`.
+* **`query_text`**: TEXT, NOT NULL. Unstructured feedback or inquiry message.
+* **`sentiment_polarity`**: REAL, CHECK (-1.0 to +1.0). Derived via TextBlob NLP analysis.
+* **`sentiment_subjectivity`**: REAL, CHECK (0.0 to 1.0). TextBlob subjectivity score.
+* **`status`**: VARCHAR(20), NOT NULL. CHECK (`Open`, `Pending_Human_Escalation`, `Resolved_By_Agent`, `Resolved_By_Mentor`).
+* **`priority`**: VARCHAR(15), NOT NULL. CHECK (`Low`, `Medium`, `High`, `Critical`).
+* **`escalation_flag`**: BOOLEAN, DEFAULT 0. Flagged by the deliberative router for human intervention.
+* **`created_at`**: TIMESTAMP, DEFAULT CURRENT_TIMESTAMP.
+* **`resolved_at`**: TIMESTAMP, NULLABLE.
+
+### 2.6 Table: `interaction_logs`
+*Tracks granular clickstream behavior and learning management system telemetry.*
+* **`log_id`**: INTEGER, PRIMARY KEY AUTOINCREMENT.
+* **`learner_id`**: VARCHAR(20), NOT NULL, FOREIGN KEY referencing `learners(learner_id)`.
+* **`action_type`**: VARCHAR(50), NOT NULL (e.g., `video_watch`, `lab_attempt`, `forum_post`).
+* **`lms_page`**: VARCHAR(100), NOT NULL. URL path of the activity.
+* **`session_duration_sec`**: INT, CHECK (>= 0). Time spent engaging with content.
+* **`timestamp`**: TIMESTAMP, DEFAULT CURRENT_TIMESTAMP.
+
+---
+
+## 3. Relational Cardinality & Normalization
+
+1. **First Normal Form (1NF)**: All attributes are atomic (no repeating groups, comma-separated lists, or nested records).
+2. **Second Normal Form (2NF)**: All non-key attributes are fully functionally dependent on primary keys. Composite keys are avoided; synthetic surrogate keys are used where natural keys could introduce partial dependency.
+3. **Third Normal Form (3NF)**: Transitive dependencies are eliminated. Module metadata (instructor, difficulty) is kept in `course_modules` rather than repeated across `quiz_grades` or `support_tickets`.
+4. **Referential Integrity**: Cascading deletes protect orphaned records for learner-centric tables, while module references default to `SET NULL` in tickets to retain audit histories.
