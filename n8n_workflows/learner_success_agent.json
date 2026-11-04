@@ -57,6 +57,7 @@
           "string": [
             {
               "value1": "={{ $json.routing_decision }}",
+              "operation": "equal",
               "value2": "HUMAN_OPERATOR_ESCALATION"
             }
           ]
@@ -65,7 +66,7 @@
       "id": "node-deliberative-if",
       "name": "Deliberative Decision Router",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "position": [
         920,
         320
