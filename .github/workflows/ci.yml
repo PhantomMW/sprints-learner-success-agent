@@ -53,3 +53,23 @@ jobs:
       - name: Sprint 4 - End-to-End API Integration & Latency SLA Verification
         run: |
           python scripts/test_api_and_n8n.py
+
+      - name: Spin up Live Docker Multi-Container Stack (FastAPI + n8n)
+        run: |
+          docker compose up --build -d
+          echo "Waiting for live services to report healthy..."
+          timeout 120 bash -c 'until curl -s http://localhost:8000/api/v1/health | grep healthy; do sleep 3; done'
+          timeout 120 bash -c 'until curl -s http://localhost:5678/healthz; do sleep 3; done'
+          sleep 4
+          docker exec sprints_n8n_orchestrator n8n import:workflow --input=/workflows/learner_success_agent.json || true
+          docker exec sprints_n8n_orchestrator n8n update:workflow --all --active=true || true
+          docker compose ps
+
+      - name: Live n8n Docker Webhook Integration Tests (Dual Branch Routing & SQLite Persistence)
+        run: |
+          python tests/test_n8n_docker_integration.py --require-live
+
+      - name: Teardown Docker Stack
+        if: always()
+        run: |
+          docker compose down -v
