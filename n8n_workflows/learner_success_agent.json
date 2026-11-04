@@ -34,10 +34,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.FASTAPI_BASE_URL || 'http://sprints-ai-api:8000' }}/api/v1/analyze",
+        "url": "http://sprints-ai-api:8000/api/v1/analyze",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { learner_id: $json.learner_id, query_text: $json.query_text } }}",
+        "jsonBody": "={{ JSON.stringify({ learner_id: $json.learner_id, query_text: $json.query_text }) }}",
         "options": {
           "timeout": 3500
         }
@@ -74,10 +74,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.FASTAPI_BASE_URL || 'http://sprints-ai-api:8000' }}/api/v1/tickets/escalate",
+        "url": "http://sprints-ai-api:8000/api/v1/tickets/escalate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ {\n  learner_id: $json.learner_id,\n  query_text: $json.query_text,\n  module_id: ($json.extracted_modules && $json.extracted_modules.length > 0) ? $json.extracted_modules[0] : 'MOD-201',\n  sentiment_polarity: $json.sentiment.polarity,\n  sentiment_subjectivity: $json.sentiment.subjectivity,\n  priority: $json.priority,\n  status: 'Pending_Human_Escalation'\n} }}",
+        "jsonBody": "={{ JSON.stringify({\n  learner_id: $json.learner_id,\n  query_text: $json.query_text,\n  module_id: ($json.extracted_modules && $json.extracted_modules.length > 0) ? $json.extracted_modules[0] : \"MOD-201\",\n  sentiment_polarity: $json.sentiment.polarity,\n  sentiment_subjectivity: $json.sentiment.subjectivity,\n  priority: $json.priority,\n  status: \"Pending_Human_Escalation\"\n}) }}",
         "options": {
           "timeout": 3000
         }
