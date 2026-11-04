@@ -77,12 +77,50 @@ app.add_middleware(
 GLOBAL_MODELS: Dict[str, Any] = {}
 DB_PATH = os.path.join(project_root, 'database', 'sprints_learners.db')
 
-def get_db_connection():
+import logging
+from contextlib import contextmanager
+
+logger = logging.getLogger("sprints_agent")
+
+def get_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     assert conn.execute("PRAGMA foreign_keys;").fetchone()[0] == 1, "Foreign key enforcement failed"
     return conn
+
+@contextmanager
+def get_db_session():
+    """
+    Robust SQLite context manager guaranteeing proper connection lifecycle management,
+    foreign key enforcement, and explicit error logging.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        yield conn
+    except sqlite3.Error as e:
+        logger.error(f"SQLite database error occurred: {e}", exc_info=True)
+        raise
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception as ce:
+                logger.warning(f"Error closing database connection: {ce}")
+
+def lookup_learner_city(learner_id: str) -> Optional[str]:
+    """Safely retrieves a learner's cohort city from the database using a managed session."""
+    try:
+        with get_db_session() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT cohort_city FROM learners WHERE learner_id = ?", (learner_id,))
+            row = cur.fetchone()
+            if row and row['cohort_city']:
+                return str(row['cohort_city'])
+    except Exception as e:
+        logger.warning(f"Failed to lookup cohort_city for learner {learner_id}: {e}")
+    return None
 
 def resolve_module_id(mod_input: Optional[str], cur: sqlite3.Cursor) -> Optional[str]:
     """
@@ -203,18 +241,18 @@ class TicketEscalationRequest(BaseModel):
 class RiskPredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
     cohort_city: Optional[str] = Field(None, example="Cairo")
-    week_1_quiz: float = Field(..., ge=0.0, le=100.0, example=65.0)
-    week_2_quiz: float = Field(..., ge=0.0, le=100.0, example=58.0)
-    week_3_quiz: float = Field(..., ge=0.0, le=100.0, example=48.0)
+    week_1_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=65.0)
+    week_2_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=58.0)
+    week_3_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=48.0)
     week_4_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=40.0)
     week_5_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=35.0)
 
 class EarlyRiskPredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
     cohort_city: Optional[str] = Field(None, example="Cairo")
-    week_1_quiz: float = Field(..., ge=0.0, le=100.0, example=65.0)
-    week_2_quiz: float = Field(..., ge=0.0, le=100.0, example=58.0)
-    week_3_quiz: float = Field(..., ge=0.0, le=100.0, example=48.0)
+    week_1_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=65.0)
+    week_2_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=58.0)
+    week_3_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=48.0)
 
 class SequencePredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1001")
@@ -284,51 +322,48 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
     start_time = time.time()
     ticket_id = f"TCK-ESC-{int(time.time()*1000) % 1000000:06d}"
     
-    conn = get_db_connection()
+    resolved_mod = None
     try:
-        cur = conn.cursor()
-        
-        # Verify learner existence; strictly reject unknown IDs with 404
-        cur.execute("SELECT learner_id FROM learners WHERE learner_id = ?", (req.learner_id,))
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Learner ID '{req.learner_id}' not found in database. Referential integrity prevented ticket escalation."
-            )
+        with get_db_session() as conn:
+            cur = conn.cursor()
             
-        # Map module ID to valid course_modules foreign key or None
-        resolved_mod = resolve_module_id(req.module_id, cur)
-        
-        cur.execute("""
-            INSERT INTO support_tickets (
-                ticket_id, learner_id, module_id, query_text,
-                sentiment_polarity, sentiment_subjectivity,
-                status, priority, escalation_flag, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-        """, (
-            ticket_id,
-            req.learner_id,
-            resolved_mod,
-            req.query_text,
-            req.sentiment_polarity,
-            req.sentiment_subjectivity,
-            req.status,
-            req.priority
-        ))
-        conn.commit()
+            # Verify learner existence; strictly reject unknown IDs with 404
+            cur.execute("SELECT learner_id FROM learners WHERE learner_id = ?", (req.learner_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Learner ID '{req.learner_id}' not found in database. Referential integrity prevented ticket escalation."
+                )
+                
+            # Map module ID to valid course_modules foreign key or None
+            resolved_mod = resolve_module_id(req.module_id, cur)
+            
+            cur.execute("""
+                INSERT INTO support_tickets (
+                    ticket_id, learner_id, module_id, query_text,
+                    sentiment_polarity, sentiment_subjectivity,
+                    status, priority, escalation_flag, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            """, (
+                ticket_id,
+                req.learner_id,
+                resolved_mod,
+                req.query_text,
+                req.sentiment_polarity,
+                req.sentiment_subjectivity,
+                req.status,
+                req.priority
+            ))
+            conn.commit()
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Escalation write failed for learner {req.learner_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database escalation write failed: {str(e)}"
         )
-    finally:
-        try:
-            conn.close()
-        except:
-            pass
         
     execution_latency_ms = round((time.time() - start_time) * 1000, 2)
     return {
@@ -360,19 +395,8 @@ def predict_learner_risk(req: RiskPredictionRequest):
     city_medians = ckpt.get('city_medians', {})
     global_medians = ckpt.get('global_medians', {})
     
-    # Resolve student's cohort_city (from payload or database fallback)
-    city = req.cohort_city
-    if not city:
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT cohort_city FROM learners WHERE learner_id = ?", (req.learner_id,))
-            row = cur.fetchone()
-            if row and row['cohort_city']:
-                city = row['cohort_city']
-            conn.close()
-        except:
-            pass
+    # Resolve student's cohort_city (from payload or managed database lookup)
+    city = req.cohort_city or lookup_learner_city(req.learner_id)
 
     # Check if this is an early intervention scenario (Weeks 1-3 only)
     is_early = (req.week_4_quiz is None and req.week_5_quiz is None)
@@ -444,18 +468,7 @@ def predict_learner_risk_early(req: EarlyRiskPredictionRequest):
     city_medians = ckpt.get('city_medians', {})
     global_medians = ckpt.get('global_medians', {})
     
-    city = req.cohort_city
-    if not city:
-        try:
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute("SELECT cohort_city FROM learners WHERE learner_id = ?", (req.learner_id,))
-            row = cur.fetchone()
-            if row and row['cohort_city']:
-                city = row['cohort_city']
-            conn.close()
-        except:
-            pass
+    city = req.cohort_city or lookup_learner_city(req.learner_id)
             
     raw_feats = extract_single_learner_features(
         raw_quizzes=[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz],

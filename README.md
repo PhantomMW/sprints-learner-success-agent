@@ -248,13 +248,19 @@ python scripts/train_pytorch.py --epochs 60 --batch_size 32
 python scripts/nlp_pipeline.py
 ```
 
-### 5. Launch FastAPI Service & Test n8n Latency
+### 5. Launch FastAPI Service & Automated Test Suites
 ```bash
 # Start API server
 python api/app.py
 
-# In another terminal, run end-to-end automated test
+# Run end-to-end API & deliberative router integration test
 python scripts/test_api_and_n8n.py
+
+# Run feature parity unit tests (6 boundary cases comparing DataFrame vs Inference extractor)
+python tests/test_feature_parity.py
+
+# Run n8n JavaScript code nodes & graph routing execution test (Node.js VM engine)
+node tests/test_n8n_workflow_engine.js
 ```
 
 ### 6. Launch via Docker Compose (n8n + API)

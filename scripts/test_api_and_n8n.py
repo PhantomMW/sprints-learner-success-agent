@@ -160,6 +160,42 @@ print("   Score Delta W1-W3:", data_early["score_delta_w1_w3"])
 assert resp_early.status_code == 200
 assert "Early Risk" in data_early["model_used"]
 
+# 5C. Test Missing Value Handling in Risk Prediction (Optional[float] Support)
+risk_missing_payload = {
+    "learner_id": "LRN-1005",
+    "cohort_city": "Cairo",
+    "week_1_quiz": 70.0,
+    "week_2_quiz": None,  # Missing Week 2 score
+    "week_3_quiz": 60.0
+    # week_4_quiz and week_5_quiz omitted entirely (early intervention scenario)
+}
+resp_risk_missing = client.post("/api/v1/predict_risk", json=risk_missing_payload)
+print("\n5C. Missing Value Handling in Risk Prediction (Optional Floats):")
+data_risk_missing = resp_risk_missing.json()
+print("   Status code:", resp_risk_missing.status_code)
+print("   Model Selected:", data_risk_missing["model_used"])
+print("   Risk Level:", data_risk_missing["risk_level"])
+print("   Risk Probability:", data_risk_missing["risk_probability"])
+assert resp_risk_missing.status_code == 200
+assert "Early Risk" in data_risk_missing["model_used"]
+
+# 5D. Test Missing Value Handling in Dedicated Early Risk (Week 1 Missing)
+early_missing_payload = {
+    "learner_id": "LRN-1005",
+    "cohort_city": "Alexandria",
+    "week_1_quiz": None,  # Missing Week 1
+    "week_2_quiz": 62.0,
+    "week_3_quiz": 55.0
+}
+resp_early_missing = client.post("/api/v1/predict_risk_early", json=early_missing_payload)
+print("\n5D. Dedicated Early Risk Prediction with Missing Week 1:")
+data_early_missing = resp_early_missing.json()
+print("   Status code:", resp_early_missing.status_code)
+print("   Risk Level:", data_early_missing["risk_level"])
+print("   Risk Probability:", data_early_missing["risk_probability"])
+print("   Early Mean Score:", data_early_missing["early_mean_score"])
+assert resp_early_missing.status_code == 200
+
 # 6. Test PyTorch Sequence LSTM Predictor (Sprint 3)
 seq_payload = {
     "learner_id": "LRN-1001",
@@ -180,9 +216,22 @@ print("\n7. Input Validation Checks:")
 print("   Blank query rejection status code:", resp_bad_query.status_code)
 assert resp_bad_query.status_code == 422
 
-resp_bad_score = client.post("/api/v1/predict_risk", json={"learner_id": "LRN-1001", "week_1_quiz": 150.0, "week_2_quiz": 50.0, "week_3_quiz": 50.0})
-print("   Score > 100 rejection status code:", resp_bad_score.status_code)
-assert resp_bad_score.status_code == 422
+resp_bad_score_high = client.post("/api/v1/predict_risk", json={"learner_id": "LRN-1001", "week_1_quiz": 150.0, "week_2_quiz": 50.0, "week_3_quiz": 50.0})
+print("   Score > 100 rejection status code:", resp_bad_score_high.status_code)
+assert resp_bad_score_high.status_code == 422
+
+resp_bad_score_neg = client.post("/api/v1/predict_risk_early", json={"learner_id": "LRN-1001", "week_1_quiz": -10.0, "week_2_quiz": 50.0, "week_3_quiz": 50.0})
+print("   Score < 0 rejection status code:", resp_bad_score_neg.status_code)
+assert resp_bad_score_neg.status_code == 422
+
+# 8. Node.js n8n Workflow Verification
+print("\n8. Executing Node.js n8n Workflow Internal Engine Test...")
+n8n_test_script = os.path.join(project_root, "tests", "test_n8n_workflow_engine.js")
+if os.path.exists(n8n_test_script):
+    import subprocess
+    proc = subprocess.run(["node", n8n_test_script], capture_output=True, text=True)
+    assert proc.returncode == 0, f"n8n node test failed: {proc.stderr}"
+    print("   n8n Node.js Code Execution & Routing: 100% PASSED!")
 
 print("\n" + "="*65)
 print("ALL API ENDPOINTS & DELIBERATIVE ROUTING: 100% SUCCESSFUL!")
