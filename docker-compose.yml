@@ -24,6 +24,8 @@ services:
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
       - GENERIC_TIMEZONE=Africa/Cairo
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     volumes:
       - n8n_data:/home/node/.n8n
@@ -32,7 +34,6 @@ services:
     depends_on:
       - sprints-ai-api
     restart: unless-stopped
-    command: /bin/sh -c "n8n import:workflow --input=/workflows/learner_success_agent.json || true; n8n update:workflow --all --active=true || true; exec n8n start"
 
 volumes:
   n8n_data:
