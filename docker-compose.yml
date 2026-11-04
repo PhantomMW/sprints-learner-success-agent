@@ -23,6 +23,7 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
+      - FASTAPI_BASE_URL=http://sprints-ai-api:8000
       - GENERIC_TIMEZONE=Africa/Cairo
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false

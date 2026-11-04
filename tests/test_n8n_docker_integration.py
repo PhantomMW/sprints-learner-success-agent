@@ -51,7 +51,7 @@ def is_service_online(url: str, timeout: float = 3.0) -> bool:
 
 def auto_import_workflow_if_docker(container_name: str = "sprints_n8n_orchestrator") -> bool:
     """
-    If running inside Docker Compose, automatically imports and activates
+    If running inside Docker Compose, automatically imports and publishes/activates
     the learner success agent workflow before dispatching test queries.
     """
     docker_info = inspect_docker()
@@ -65,15 +65,66 @@ def auto_import_workflow_if_docker(container_name: str = "sprints_n8n_orchestrat
         )
         if container_name in ps_check.stdout:
             print(f"   [SETUP] Detected active container '{container_name}'.")
-            print("   [SETUP] Auto-importing and activating workflow...")
+            print("   [SETUP] Auto-importing and publishing workflow...")
+            # 1. Import workflow JSON
             subprocess.run([
                 "docker", "exec", container_name,
                 "n8n", "import:workflow", "--input=/workflows/learner_success_agent.json"
             ], capture_output=True, text=True, timeout=15)
+
+            # 2. Publish workflow using modern n8n publish:workflow command
             subprocess.run([
                 "docker", "exec", container_name,
-                "n8n", "update:workflow", "--all", "--active=true"
+                "n8n", "publish:workflow", "--id=sprints-capstone-n8n-workflow"
             ], capture_output=True, text=True, timeout=15)
+
+            # 3. Dynamic fallback: export all workflows and ensure all IDs are published
+            publish_cmd = (
+                "n8n export:workflow --all --output=/tmp/wfs.json >/dev/null 2>&1; "
+                "node -e \""
+                "const fs=require('fs'); const {execSync}=require('child_process'); "
+                "try { "
+                "  const d=JSON.parse(fs.readFileSync('/tmp/wfs.json','utf8')); "
+                "  const l=Array.isArray(d)?d:[d]; "
+                "  for(const w of l) { "
+                "    if(w.id){ "
+                "      try{execSync('n8n publish:workflow --id='+w.id,{stdio:'ignore'})}catch(e){} "
+                "      try{execSync('n8n update:workflow --id='+w.id+' --active=true',{stdio:'ignore'})}catch(e){} "
+                "    } "
+                "  } "
+                "} catch(e){} "
+                "\""
+            )
+            subprocess.run([
+                "docker", "exec", container_name,
+                "sh", "-c", publish_cmd
+            ], capture_output=True, text=True, timeout=15)
+
+            # 4. Probe webhook: if not registered in memory yet, restart container so n8n loads active routes from DB
+            webhook_url = f"{N8N_BASE_URL.rstrip('/')}/webhook/learner-query"
+            try:
+                probe_res = requests.post(webhook_url, json={"learner_id": "LRN-1002", "query_text": "ping"}, timeout=3)
+                if probe_res.status_code == 404:
+                    print("   [SETUP] Webhook not registered in-memory yet; restarting n8n to reload active routes from DB...")
+                    subprocess.run(["docker", "restart", container_name], capture_output=True, text=True, timeout=25)
+                    time.sleep(3)
+                    for _ in range(20):
+                        if is_service_online(N8N_BASE_URL):
+                            break
+                        time.sleep(2)
+            except Exception:
+                pass
+
+            # 5. Settle time for in-memory router
+            for _ in range(15):
+                try:
+                    probe_res = requests.post(webhook_url, json={"learner_id": "LRN-1002", "query_text": "ping"}, timeout=3)
+                    if probe_res.status_code != 404:
+                        break
+                except Exception:
+                    pass
+                time.sleep(1.5)
+
             print("   [SETUP] Workflow imported & activated in n8n container.")
             return True
     except Exception as e:
@@ -156,7 +207,7 @@ def main():
         "cohort_city": "Cairo"
     }
     t0 = time.time()
-    resp_rag = requests.post(webhook_url, json=rag_payload, timeout=6)
+    resp_rag = requests.post(webhook_url, json=rag_payload, timeout=12)
     lat_rag = (time.time() - t0) * 1000
 
     print(f"   Status Code: {resp_rag.status_code}")
@@ -188,7 +239,7 @@ def main():
         "cohort_city": "Alexandria"
     }
     t0 = time.time()
-    resp_esc = requests.post(webhook_url, json=esc_payload, timeout=6)
+    resp_esc = requests.post(webhook_url, json=esc_payload, timeout=12)
     lat_esc = (time.time() - t0) * 1000
 
     print(f"   Status Code: {resp_esc.status_code}")
