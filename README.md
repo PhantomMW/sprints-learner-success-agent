@@ -41,8 +41,8 @@ To solve this, Sprints leadership commissioned the development of an **end-to-en
 * **Sprint 1 (Practical Data Analytics):** Normalized 6-table SQLite database (`database/sprints_learners.db`) with analytical queries to extract interaction logs and detect progressive grade degradation ($\ge 15$ pts).
 * **Sprint 2 (Intro to Machine Learning):** PyTorch Supervised Feed-Forward Neural Network (`models/risk_classifier.pth`) classifying learners as **High Risk** vs **Low Risk**, achieving **F1 = 1.000** and **0 False Negatives** (exceeding the $\ge 0.82$ target).
 * **Sprint 3 (Deep Learning):** PyTorch 2-layer LSTM Sequence Model (`models/sequence_predictor.pth`) processing 5-week quiz trajectories $[q_1..q_5]$ to forecast final capstone project outcomes ($R^2 = 0.8229$, RMSE = $7.63$ pts, MAE = $5.59$ pts), leveraging its **forget gate** to discard early-week noise and eliminate vanishing gradients.
-* **Sprint 4 (NLP & Generative AI):** Custom spaCy Named Entity Recognition (NER), TextBlob sentiment analysis, Gensim Word2Vec dense embeddings (`data/processed_embeddings.bin`), and a conceptual FastText n-grams benchmark.
-* **Orchestration (n8n & FastAPI):** Event-driven n8n workflow (`n8n_workflows/learner_success_agent.json`) executing a Deliberative Agent routing policy (escalating distressed queries to human mentors within **9 ms** and answering curriculum queries via RAG in **154 ms**, strictly meeting the $< 3.5$s SLA).
+* **Sprint 4 (NLP & Generative AI):** Custom spaCy Named Entity Recognition (NER), TextBlob sentiment analysis, Gensim Word2Vec dense embeddings (`data/processed_embeddings.bin`), empirical FastText subword n-grams benchmark, and dense Semantic Vector Retrieval.
+* **Orchestration (n8n & FastAPI):** Event-driven n8n workflow (`n8n_workflows/learner_success_agent.json`) executing a Deliberative Agent routing policy (escalating distressed queries to human mentors within **14 ms** and answering curriculum queries via Semantic Retrieval in **152 ms**, strictly meeting the $< 3.5$s SLA).
 
 ---
 
@@ -273,15 +273,25 @@ docker-compose up --build -d
 A major pitfall of standard RNNs on multi-week academic trajectories is the **exponential decay of backpropagated gradients**. When modeling a 5-week sequence $[q_1, q_2, q_3, q_4, q_5]$, an isolated bad week (e.g. sickness or local power outages in Week 1) could either dominate or vanish in traditional architectures.
 * **The Forget Gate ($f_t$):** Evaluates $f_t = \sigma(W_f \cdot [h_{t-1}, x_t] + b_f)$. For temporary noise in early weeks, $f_t$ selectively dampens transient errors while maintaining cumulative mastery.
 * **Additive Constant Error Carousel ($C_t$):** The update rule $C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t$ provides a linear shortcut for gradient propagation, entirely circumventing vanishing gradients.
-* **Hidden State ($h_t$):** Filtered through $o_t \odot \tanh(C_t)$, the final hidden state $h_5$ encodes an accurate, noise-filtered representation of student velocity used to forecast capstone outcomes ($R^2 = 0.8229$).
+* **Hidden State ($h_t$):** Filtered through $o_t \odot \tanh(C_t)$, the final hidden state $h_5$ encodes an accurate, noise-filtered representation of student velocity used to forecast capstone outcomes ($R^2 = 0.8229$, RMSE = $7.63$ pts).
 
-### 2. Validation via Latent Space Distributions
+### 2. Scientific Evaluation: Experiment B ($F_1 = 1.000$) vs Experiment A ($F_1 = 0.9714$)
+A rigorous empirical examination of the synthetic cohort dataset explains the performance dynamics between the two experiments:
+* **The Week 5 Dropout Reality (Experiment B):** In the student telemetry dataset, learners who drop out overwhelmingly stop submitting quizzes by the end of the cohort: **74.2% (345 / 465) of dropped students have a missing/null Week 5 quiz**, and their average Week 5 score drops to **$10.0$ pts** (compared to **$86.0$ pts** for retained learners). At Week 5, dropout is an accomplished fact; hence, Experiment B acts as a *retrospective safety net* achieving $F_1 = 1.000$.
+* **True Proactive Early Intervention (Experiment A):** To provide real pedagogical value, intervention must occur *before* students abandon the bootcamp. Experiment A uses **Weeks 1-3 only**, when students are still engaged (Week 1 quiz mean: 54.6 for at-risk vs 83.8 for retained). Achieving **Test $F_1 = 0.9714$** and **Test Recall = $0.9855$ (0.9996 ROC-AUC)** proves that proactive early flagging is highly feasible at Week 3.
+
+### 3. Latent Space Manifold Separability
 To ensure the supervised risk classifier was not overfitting to spurious tabular artifacts, we extracted the penultimate 16-dimensional activation vectors from the MLP and projected them onto a 2D manifold via PCA. The resulting distribution demonstrates **clear geometric separation** between the High Risk cluster and the Retained Learners cluster, validating that our classification boundaries reflect true underlying behavioral dynamics.
 
-### 3. Word2Vec vs. FastText Conceptual Comparison
-* **Gensim Word2Vec:** Operates on atomic whole-word tokens (Skip-Gram). Ultra-compact model footprint (~1.2 MB) and instantaneous $O(1)$ dictionary lookups make it ideal for the strict sub-second latency SLA of our real-time n8n Webhook.
-* **FastText:** Decomposes words into bags of character n-grams. Crucial for out-of-vocabulary (OOV) tokens, student spelling mistakes (`PyTorxh`, `lstmm`), and morphologically rich Franco-Arab Egyptian forum interactions.
-* **Strategic Recommendation:** Deploy Word2Vec in the live n8n runtime, while utilizing FastText in the offline LMS forum scraper.
+### 4. Word2Vec vs. FastText Empirical Benchmark
+* **Gensim Word2Vec:** Operates on atomic whole-word tokens (Skip-Gram). Ultra-compact model footprint (~308 KB) and instantaneous $O(1)$ dictionary lookups make it ideal for the strict sub-second latency SLA of our real-time n8n Webhook.
+* **FastText Subwords:** Decomposes words into character n-grams ($3 \le n \le 6$, compact bucket=10,000). Crucial for out-of-vocabulary (OOV) tokens and student spelling mistakes. In our live Gensim benchmark, Word2Vec raises `KeyError` on `pytorxh` and `lstmm`, whereas FastText reconstructs valid subword embeddings with **0.9113** and **0.8016** cosine similarity to the canonical terms.
+* **Strategic Dual Architecture:** Word2Vec powers the low-latency real-time inference loop; FastText runs in the asynchronous forum scraper pipeline.
+
+### 5. Semantic Vector Retrieval vs. Full Generative LLM RAG
+To ensure architectural transparency:
+* **Current Production System:** Implements a **Dense Semantic Vector Retrieval Grounding Engine**. Incoming queries are mapped to 100-dimensional Word2Vec space and matched against verified curriculum documentation chunks via **Cosine Similarity** with a confidence threshold ($0.25$) and graceful fallback. This architecture guarantees deterministic pedagogical accuracy and sub-second speed (**~150 ms**) with zero external LLM API cost or hallucination risk.
+* **Generative Expansion Ready:** The retrieved curriculum chunk and student metadata are pre-formatted so an enterprise generative model (e.g. Gemini 1.5 Pro) can be plugged directly into the n8n downstream pipeline for open-ended conversational synthesis.
 
 ---
 

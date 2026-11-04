@@ -29,6 +29,24 @@ headers = {
 }
 
 repo = 'PhantomMW/sprints-learner-success-agent'
+repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+assets_to_upload = [
+    (os.path.join(repo_dir, 'docs', 'Sprints_Model_Evaluation_Report.pdf'), 'Sprints_Model_Evaluation_Report.pdf', 'application/pdf'),
+    (os.path.join(repo_dir, 'docs', 'Sprints_Architecture_Presentation.pdf'), 'Sprints_Architecture_Presentation.pdf', 'application/pdf'),
+    (os.path.join(repo_dir, 'sprints_capstone_submission.zip'), 'sprints_capstone_submission.zip', 'application/zip')
+]
+
+# PRE-FLIGHT VERIFICATION: Ensure all local files exist and are non-empty BEFORE modifying remote release
+print("Validating local assets before modifying release...")
+for file_path, asset_name, _ in assets_to_upload:
+    if not os.path.exists(file_path):
+        print(f"FATAL ERROR: Local deliverable missing: {file_path}. Aborting before touching release.")
+        sys.exit(1)
+    if os.path.getsize(file_path) == 0:
+        print(f"FATAL ERROR: Local deliverable is empty: {file_path}. Aborting.")
+        sys.exit(1)
+    print(f"  [VERIFIED] Local asset ready: {asset_name} ({os.path.getsize(file_path):,} bytes)")
 
 # 2. Update Repo Details & Topics
 print("2. Updating Repository Description & Topics...")
@@ -148,14 +166,7 @@ patch_req = urllib.request.Request(
 with urllib.request.urlopen(patch_req) as p_resp:
     print("Updated Release Body successfully!")
 
-# 6. Upload fresh assets
-repo_dir = r'C:\Users\mw851\sprints-learner-success-agent'
-assets_to_upload = [
-    (os.path.join(repo_dir, 'docs', 'Sprints_Model_Evaluation_Report.pdf'), 'Sprints_Model_Evaluation_Report.pdf', 'application/pdf'),
-    (os.path.join(repo_dir, 'docs', 'Sprints_Architecture_Presentation.pdf'), 'Sprints_Architecture_Presentation.pdf', 'application/pdf'),
-    (os.path.join(repo_dir, 'sprints_capstone_submission.zip'), 'sprints_capstone_submission.zip', 'application/zip')
-]
-
+# 6. Upload fresh verified assets
 for file_path, asset_name, content_type in assets_to_upload:
     if os.path.exists(file_path):
         size = os.path.getsize(file_path)

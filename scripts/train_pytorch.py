@@ -115,8 +115,111 @@ def load_and_split_data(csv_path: str, random_state: int = 42):
         split_df['early_min'] = split_df[w13_cols].min(axis=1)
         split_df['early_performance_ratio'] = split_df['week_3_quiz'] / (split_df['week_1_quiz'] + 1e-5)
         
+    city_medians_dict = {
+        city: {col: float(val) for col, val in row.items()}
+        for city, row in city_medians_train.iterrows()
+    }
+    global_medians_dict = {col: float(val) for col, val in global_medians_train.items()}
+
     print("Leak-free preprocessing complete. Training statistics strictly isolated.")
-    return train_df, val_df, test_df
+    return train_df, val_df, test_df, city_medians_dict, global_medians_dict
+
+def extract_single_learner_features(
+    raw_quizzes: list,
+    cohort_city: str = None,
+    city_medians: dict = None,
+    global_medians: dict = None,
+    mode: str = "full"
+) -> np.ndarray:
+    """
+    Unified feature extraction for inference (FastAPI & n8n) guaranteeing 100% mathematical
+    and methodological parity with training:
+    - Same training-set city/global median imputation
+    - Causal forward fill (no backward fill)
+    - Sample standard deviation (ddof=1) matching pandas
+    - Matching feature engineering order and column keys
+    """
+    quiz_keys = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'week_4_quiz', 'week_5_quiz']
+    city_medians = city_medians or {}
+    global_medians = global_medians or {k: 75.0 for k in quiz_keys}
+    
+    if mode == "early":
+        active_keys = quiz_keys[:3]
+        quizzes_subset = [raw_quizzes[i] if i < len(raw_quizzes) else None for i in range(3)]
+        early_missing_count = sum(1 for q in quizzes_subset if q is None or (isinstance(q, (int, float)) and np.isnan(q)))
+        
+        # 1. Imputation
+        clean_quizzes = []
+        for i in range(3):
+            k = active_keys[i]
+            val = quizzes_subset[i]
+            if val is None or (isinstance(val, (int, float)) and np.isnan(val)):
+                imputed = city_medians.get(cohort_city, {}).get(k, global_medians.get(k, 50.0))
+                clean_quizzes.append(float(imputed))
+            else:
+                clean_quizzes.append(float(val))
+                
+        # 2. Sequential causal forward fill
+        for i in range(1, len(clean_quizzes)):
+            if clean_quizzes[i] is None or np.isnan(clean_quizzes[i]):
+                clean_quizzes[i] = clean_quizzes[i-1]
+        clean_quizzes = [50.0 if (q is None or np.isnan(q)) else q for q in clean_quizzes]
+        
+        delta_w1_w3 = clean_quizzes[0] - clean_quizzes[2]
+        early_mean = float(np.mean(clean_quizzes))
+        early_min = float(np.min(clean_quizzes))
+        
+        return np.array([[
+            clean_quizzes[0],
+            clean_quizzes[1],
+            clean_quizzes[2],
+            delta_w1_w3,
+            early_mean,
+            early_min,
+            early_missing_count
+        ]], dtype=np.float32)
+        
+    else:
+        quizzes_5 = [raw_quizzes[i] if i < len(raw_quizzes) else None for i in range(5)]
+        missing_quiz_count = sum(1 for q in quizzes_5 if q is None or (isinstance(q, (int, float)) and np.isnan(q)))
+        
+        # 1. Imputation
+        clean_quizzes = []
+        for i in range(5):
+            k = quiz_keys[i]
+            val = quizzes_5[i]
+            if val is None or (isinstance(val, (int, float)) and np.isnan(val)):
+                imputed = city_medians.get(cohort_city, {}).get(k, global_medians.get(k, 50.0))
+                clean_quizzes.append(float(imputed))
+            else:
+                clean_quizzes.append(float(val))
+                
+        # 2. Sequential causal forward fill
+        for i in range(1, len(clean_quizzes)):
+            if clean_quizzes[i] is None or np.isnan(clean_quizzes[i]):
+                clean_quizzes[i] = clean_quizzes[i-1]
+        clean_quizzes = [50.0 if (q is None or np.isnan(q)) else q for q in clean_quizzes]
+        
+        score_delta_w1_w5 = clean_quizzes[0] - clean_quizzes[4]
+        quiz_mean = float(np.mean(clean_quizzes))
+        # Use ddof=1 to match pandas sample standard deviation exactly
+        quiz_std = float(np.std(clean_quizzes, ddof=1)) if len(clean_quizzes) > 1 else 0.0
+        quiz_min = float(np.min(clean_quizzes))
+        recent_performance_ratio = float(clean_quizzes[4] / (clean_quizzes[0] + 1e-5))
+        
+        return np.array([[
+            clean_quizzes[0],
+            clean_quizzes[1],
+            clean_quizzes[2],
+            clean_quizzes[3],
+            clean_quizzes[4],
+            score_delta_w1_w5,
+            quiz_mean,
+            quiz_std,
+            quiz_min,
+            recent_performance_ratio,
+            missing_quiz_count
+        ]], dtype=np.float32)
 
 # ==============================================================================
 # 2. PYTORCH DATASETS
@@ -462,7 +565,7 @@ def main():
     os.makedirs(docs_dir, exist_ok=True)
     
     # 1. Split & Preprocess
-    train_df, val_df, test_df = load_and_split_data(csv_path)
+    train_df, val_df, test_df, city_medians_dict, global_medians_dict = load_and_split_data(csv_path)
     
     # 2. Experiment A: Proactive Early Risk Classifier (Weeks 1 to 3)
     early_features = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'score_delta_w1_w3', 'early_mean', 'early_min', 'early_missing_count']
@@ -482,6 +585,8 @@ def main():
         'decision_threshold': exp_b['threshold'],
         'test_f1': exp_b['test_f1'],
         'test_recall': exp_b['test_rec'],
+        'city_medians': city_medians_dict,
+        'global_medians': global_medians_dict,
         'early_model_state_dict': exp_a['model'].state_dict(),
         'early_feature_cols': early_features,
         'early_scaler_mean': exp_a['scaler'].mean_,

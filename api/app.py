@@ -41,7 +41,8 @@ from nlp_pipeline import (
 )
 from train_pytorch import (
     LearnerRiskClassifier,
-    LearnerSequenceLSTM
+    LearnerSequenceLSTM,
+    extract_single_learner_features
 )
 
 app = FastAPI(
@@ -201,6 +202,7 @@ class TicketEscalationRequest(BaseModel):
 
 class RiskPredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
+    cohort_city: Optional[str] = Field(None, example="Cairo")
     week_1_quiz: float = Field(..., ge=0.0, le=100.0, example=65.0)
     week_2_quiz: float = Field(..., ge=0.0, le=100.0, example=58.0)
     week_3_quiz: float = Field(..., ge=0.0, le=100.0, example=48.0)
@@ -209,10 +211,10 @@ class RiskPredictionRequest(BaseModel):
 
 class EarlyRiskPredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
+    cohort_city: Optional[str] = Field(None, example="Cairo")
     week_1_quiz: float = Field(..., ge=0.0, le=100.0, example=65.0)
     week_2_quiz: float = Field(..., ge=0.0, le=100.0, example=58.0)
     week_3_quiz: float = Field(..., ge=0.0, le=100.0, example=48.0)
-    early_missing_count: Optional[int] = Field(0, ge=0, le=3, example=0)
 
 class SequencePredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1001")
@@ -345,47 +347,66 @@ def predict_learner_risk(req: RiskPredictionRequest):
     """
     Sprint 2: Evaluates a student's structured quiz profile using the PyTorch MLP.
     Supports both Experiment A (Early Risk W1-W3) and Experiment B (Full Trajectory W1-W5).
+    Guarantees 100% preprocessing parity with train_pytorch.py:
+    - Same training-set city/global median imputation
+    - Causal forward fill (no backward fill leakage)
+    - Sample standard deviation (ddof=1)
     """
     if "risk_classifier" not in GLOBAL_MODELS:
         raise HTTPException(status_code=503, detail="Risk classifier model not loaded.")
         
     start_time = time.time()
     ckpt = GLOBAL_MODELS["risk_meta"]
+    city_medians = ckpt.get('city_medians', {})
+    global_medians = ckpt.get('global_medians', {})
     
+    # Resolve student's cohort_city (from payload or database fallback)
+    city = req.cohort_city
+    if not city:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT cohort_city FROM learners WHERE learner_id = ?", (req.learner_id,))
+            row = cur.fetchone()
+            if row and row['cohort_city']:
+                city = row['cohort_city']
+            conn.close()
+        except:
+            pass
+
     # Check if this is an early intervention scenario (Weeks 1-3 only)
     is_early = (req.week_4_quiz is None and req.week_5_quiz is None)
     
     if is_early and "early_risk_classifier" in GLOBAL_MODELS:
         model = GLOBAL_MODELS["early_risk_classifier"]
-        w13 = [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz]
-        delta_w1_w3 = w13[0] - w13[2]
-        early_mean = float(np.mean(w13))
-        early_min = float(np.min(w13))
-        early_missing = 0
-        raw_feats = np.array([[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, delta_w1_w3, early_mean, early_min, early_missing]])
+        raw_feats = extract_single_learner_features(
+            raw_quizzes=[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz],
+            cohort_city=city,
+            city_medians=city_medians,
+            global_medians=global_medians,
+            mode="early"
+        )
         mean = ckpt['early_scaler_mean']
         scale = ckpt['early_scaler_scale']
         scaled_feats = (raw_feats - mean) / scale
         threshold = float(ckpt.get('early_threshold', 0.35))
-        model_used = "Experiment A: Early Proactive Risk (Weeks 1-3)"
-        score_delta = delta_w1_w3
+        model_used = "Experiment A: Proactive Early Risk (Weeks 1-3)"
+        score_delta = float(raw_feats[0, 3])
     else:
         model = GLOBAL_MODELS["risk_classifier"]
-        w4 = req.week_4_quiz if req.week_4_quiz is not None else req.week_3_quiz
-        w5 = req.week_5_quiz if req.week_5_quiz is not None else req.week_3_quiz
-        quizzes = [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, w4, w5]
-        score_delta = quizzes[0] - quizzes[-1]
-        quiz_mean = float(np.mean(quizzes))
-        quiz_std = float(np.std(quizzes))
-        quiz_min = float(np.min(quizzes))
-        perf_ratio = quizzes[-1] / (quizzes[0] + 1e-5)
-        missing_count = sum(1 for q in [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, req.week_4_quiz, req.week_5_quiz] if q is None)
-        raw_feats = np.array([quizzes + [score_delta, quiz_mean, quiz_std, quiz_min, perf_ratio, missing_count]])
+        raw_feats = extract_single_learner_features(
+            raw_quizzes=[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, req.week_4_quiz, req.week_5_quiz],
+            cohort_city=city,
+            city_medians=city_medians,
+            global_medians=global_medians,
+            mode="full"
+        )
         mean = ckpt['scaler_mean']
         scale = ckpt['scaler_scale']
         scaled_feats = (raw_feats - mean) / scale
         threshold = float(ckpt.get('decision_threshold', 0.35))
         model_used = "Experiment B: Full Trajectory Risk (Weeks 1-5)"
+        score_delta = float(raw_feats[0, 5])
         
     with torch.no_grad():
         tensor_x = torch.tensor(scaled_feats, dtype=torch.float32)
@@ -396,6 +417,7 @@ def predict_learner_risk(req: RiskPredictionRequest):
     
     return {
         "learner_id": req.learner_id,
+        "cohort_city": city or "Unknown / Global Default",
         "model_used": model_used,
         "risk_probability": round(prob, 4),
         "risk_level": "High Risk" if is_high_risk else "Low Risk",
@@ -411,6 +433,7 @@ def predict_learner_risk_early(req: EarlyRiskPredictionRequest):
     Sprint 2 (Experiment A): Dedicated Proactive Early Risk Classifier.
     Predicts dropout risk at Week 3 before learner attrition occurs.
     Test F1 = 0.9714 | Recall = 0.9855 | ROC-AUC = 0.9996
+    Guarantees unified preprocessing parity (train city medians + sample std ddof=1).
     """
     if "early_risk_classifier" not in GLOBAL_MODELS:
         raise HTTPException(status_code=503, detail="Early risk classifier model not loaded.")
@@ -418,18 +441,36 @@ def predict_learner_risk_early(req: EarlyRiskPredictionRequest):
     start_time = time.time()
     ckpt = GLOBAL_MODELS["risk_meta"]
     model = GLOBAL_MODELS["early_risk_classifier"]
+    city_medians = ckpt.get('city_medians', {})
+    global_medians = ckpt.get('global_medians', {})
     
-    w13 = [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz]
-    delta_w1_w3 = w13[0] - w13[2]
-    early_mean = float(np.mean(w13))
-    early_min = float(np.min(w13))
-    early_missing = req.early_missing_count or 0
-    raw_feats = np.array([[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, delta_w1_w3, early_mean, early_min, early_missing]])
+    city = req.cohort_city
+    if not city:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT cohort_city FROM learners WHERE learner_id = ?", (req.learner_id,))
+            row = cur.fetchone()
+            if row and row['cohort_city']:
+                city = row['cohort_city']
+            conn.close()
+        except:
+            pass
+            
+    raw_feats = extract_single_learner_features(
+        raw_quizzes=[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz],
+        cohort_city=city,
+        city_medians=city_medians,
+        global_medians=global_medians,
+        mode="early"
+    )
     
     mean = ckpt['early_scaler_mean']
     scale = ckpt['early_scaler_scale']
     scaled_feats = (raw_feats - mean) / scale
     threshold = float(ckpt.get('early_threshold', 0.35))
+    delta_w1_w3 = float(raw_feats[0, 3])
+    early_mean = float(raw_feats[0, 4])
     
     with torch.no_grad():
         tensor_x = torch.tensor(scaled_feats, dtype=torch.float32)
@@ -440,6 +481,7 @@ def predict_learner_risk_early(req: EarlyRiskPredictionRequest):
     
     return {
         "learner_id": req.learner_id,
+        "cohort_city": city or "Unknown / Global Default",
         "model_used": "Experiment A: Proactive Early Risk (Weeks 1-3)",
         "risk_probability": round(prob, 4),
         "risk_level": "High Risk" if is_high_risk else "Low Risk",

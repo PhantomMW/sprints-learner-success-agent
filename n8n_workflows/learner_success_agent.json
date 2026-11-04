@@ -37,7 +37,7 @@
         "url": "={{ $env.FASTAPI_BASE_URL || 'http://sprints-ai-api:8000' }}/api/v1/analyze",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"query_text\": \"{{ $json.query_text }}\"\n}",
+        "jsonBody": "={{ { learner_id: $json.learner_id, query_text: $json.query_text } }}",
         "options": {
           "timeout": 3500
         }
@@ -77,7 +77,7 @@
         "url": "={{ $env.FASTAPI_BASE_URL || 'http://sprints-ai-api:8000' }}/api/v1/tickets/escalate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"query_text\": \"{{ $json.query_text }}\",\n  \"module_id\": \"{{ $json.extracted_modules && $json.extracted_modules.length > 0 ? $json.extracted_modules[0] : 'MOD-201' }}\",\n  \"sentiment_polarity\": {{ $json.sentiment.polarity }},\n  \"sentiment_subjectivity\": {{ $json.sentiment.subjectivity }},\n  \"priority\": \"{{ $json.priority }}\",\n  \"status\": \"Pending_Human_Escalation\"\n}",
+        "jsonBody": "={{ {\n  learner_id: $json.learner_id,\n  query_text: $json.query_text,\n  module_id: ($json.extracted_modules && $json.extracted_modules.length > 0) ? $json.extracted_modules[0] : 'MOD-201',\n  sentiment_polarity: $json.sentiment.polarity,\n  sentiment_subjectivity: $json.sentiment.subjectivity,\n  priority: $json.priority,\n  status: 'Pending_Human_Escalation'\n} }}",
         "options": {
           "timeout": 3000
         }
@@ -93,7 +93,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Prepare Escalate Response to Learner\nconst prev = $('Analyze Sentiment, NER & Vector RAG').first().json;\nconst dbResult = $json;\n\nreturn {\n  status: 'escalated',\n  ticket_id: dbResult.ticket_id || ('TCK-' + Date.now().toString().slice(-6)),\n  learner_id: prev.learner_id,\n  assigned_queue: prev.assigned_queue,\n  priority: prev.priority,\n  db_persisted: true,\n  sentiment: prev.sentiment,\n  response_message: prev.agent_response,\n  execution_latency_ms: prev.execution_latency_ms,\n  sla_met: prev.sla_met\n};"
+        "jsCode": "// Prepare Escalate Response to Learner with strict DB persistence check\nconst prev = $('Analyze Sentiment, NER & Vector RAG').first().json;\nconst dbResult = $json;\n\n// Ensure database actually recorded the escalation ticket\nconst isPersisted = Boolean(dbResult && dbResult.status === 'persisted' && dbResult.ticket_id);\nif (!isPersisted) {\n  throw new Error(\"Database escalation ticket persistence failed. Immediate manual mentor alert required.\");\n}\n\nreturn {\n  status: 'escalated',\n  ticket_id: dbResult.ticket_id,\n  learner_id: prev.learner_id,\n  assigned_queue: prev.assigned_queue,\n  priority: prev.priority,\n  db_persisted: true,\n  sentiment: prev.sentiment,\n  response_message: prev.agent_response,\n  execution_latency_ms: prev.execution_latency_ms,\n  sla_met: prev.sla_met\n};"
       },
       "id": "node-format-escalation-response",
       "name": "Format Escalation Response",
@@ -106,7 +106,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Prepare Automated Semantic RAG Response\nconst data = $json;\n\nreturn {\n  status: 'resolved_auto',\n  ticket_id: 'TCK-AUTO-' + Date.now().toString().slice(-6),\n  learner_id: data.learner_id,\n  assigned_queue: data.assigned_queue,\n  priority: data.priority,\n  db_persisted: false,\n  extracted_modules: data.extracted_modules,\n  extracted_dates: data.extracted_dates,\n  retrieved_chunk: data.retrieved_chunk,\n  response_message: data.agent_response,\n  execution_latency_ms: data.execution_latency_ms,\n  sla_met: data.sla_met\n};"
+        "jsCode": "// Prepare Automated Semantic Retrieval Response\nconst data = $json;\n\nreturn {\n  status: 'resolved_auto',\n  ticket_id: 'TCK-AUTO-' + Date.now().toString().slice(-6),\n  learner_id: data.learner_id,\n  assigned_queue: data.assigned_queue,\n  priority: data.priority,\n  db_persisted: false,\n  extracted_modules: data.extracted_modules,\n  extracted_dates: data.extracted_dates,\n  retrieved_chunk: data.retrieved_chunk,\n  response_message: data.agent_response,\n  execution_latency_ms: data.execution_latency_ms,\n  sla_met: data.sla_met\n};"
       },
       "id": "node-format-rag-response",
       "name": "Format Automated RAG Response",
@@ -120,7 +120,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"status\": \"{{ $json.status }}\",\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"ticket_id\": \"{{ $json.ticket_id }}\",\n  \"priority\": \"{{ $json.priority }}\",\n  \"assigned_queue\": \"{{ $json.assigned_queue }}\",\n  \"db_persisted\": {{ $json.db_persisted }},\n  \"response_message\": \"{{ $json.response_message }}\",\n  \"execution_latency_ms\": {{ $json.execution_latency_ms }},\n  \"sla_compliance\": \"{{ $json.sla_met ? 'PASSED (<3.5s)' : 'EXCEEDED' }}\"\n}",
+        "responseBody": "={{ {\n  status: $json.status,\n  learner_id: $json.learner_id,\n  ticket_id: $json.ticket_id,\n  priority: $json.priority,\n  assigned_queue: $json.assigned_queue,\n  db_persisted: $json.db_persisted,\n  response_message: $json.response_message,\n  execution_latency_ms: $json.execution_latency_ms,\n  sla_compliance: $json.sla_met ? 'PASSED (<3.5s)' : 'EXCEEDED'\n} }}",
         "options": {}
       },
       "id": "node-respond-webhook",
