@@ -2,9 +2,16 @@
 ==============================================================================
 SPRINTS AI-POWERED LEARNER SUCCESS & SUPPORT AGENT
 Module: scripts/train_pytorch.py
-Description: End-to-end PyTorch modeling pipeline for Sprint 2 (Risk Classifier MLP)
-             and Sprint 3 (LSTM Sequence Predictor for 5-week quiz trajectories).
-Meets Acceptance Criteria: F1 score >= 0.82 on High Risk learners, minimizing false negatives.
+Description: End-to-end PyTorch modeling pipeline for Sprint 2 and Sprint 3.
+             - 100% Data-Leakage Free Preprocessing (Train-only imputation)
+             - Rigorous 3-way Split: Train (70%) / Validation (15%) / Test (15%)
+             - Dual Experiments in Sprint 2:
+               * Experiment A: Proactive Early Risk Classifier (Weeks 1-3 only)
+               * Experiment B: Full Trajectory Risk Classifier (Weeks 1-5)
+             - Sprint 3 Deep Sequence LSTM Model:
+               * Trained strictly on non-null capstone submissions (no target imputation)
+               * Forget gate & constant error carousel cell state dynamics
+               * Evaluated on held-out test set (RMSE, R^2)
 ==============================================================================
 """
 
@@ -35,9 +42,7 @@ from sklearn.metrics import (
     r2_score
 )
 from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
 
-# Set seeds for complete reproducibility
 def set_seed(seed=42):
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -45,61 +50,78 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
 
 # ==============================================================================
-# 1. DATA PREPROCESSING & IMPUTATION (SPRINT 1 & 2 INTEGRATION)
+# 1. LEAK-FREE DATA PREPROCESSING & 3-WAY SPLIT
 # ==============================================================================
 
-def load_and_preprocess_data(csv_path: str):
+def load_and_split_data(csv_path: str, random_state: int = 42):
     """
-    Loads raw learner dataset, performs data cleaning, handles anomalies,
-    and applies forward-fill temporal imputation for sequential quiz metrics.
+    Loads raw learner dataset and performs a strict 3-way split:
+    Train (70%) / Validation (15%) / Test (15%) stratified by dropped_out.
+    Imputation statistics are computed EXCLUSIVELY on the training set
+    to prevent target and temporal data leakage.
     """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Data file not found at: {csv_path}")
         
     df = pd.read_csv(csv_path)
-    print(f"Loaded dataset from {csv_path}: {df.shape[0]} rows, {df.shape[1]} columns.")
+    print(f"Loaded raw dataset from {csv_path}: {df.shape[0]} rows, {df.shape[1]} columns.")
     
-    # Cast numerical quiz columns
     quiz_cols = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'week_4_quiz', 'week_5_quiz']
     for col in quiz_cols + ['project_score']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
         
     df['dropped_out'] = df['dropped_out'].map({True: 1, False: 0, 'True': 1, 'False': 0, 1: 1, 0: 0}).fillna(0).astype(int)
     
-    # Missing engagement metrics analysis
-    missing_before = df[quiz_cols].isna().sum()
-    print("Missing values per quiz before imputation:\n", missing_before)
-    
-    # Domain-specific imputation:
-    # 1. Count number of missed quizzes as a key risk behavioral feature
+    # Missing indicator features (known at runtime)
     df['missing_quiz_count'] = df[quiz_cols].isna().sum(axis=1)
+    df['early_missing_count'] = df[['week_1_quiz', 'week_2_quiz', 'week_3_quiz']].isna().sum(axis=1)
     
-    # 2. Forward Fill along time axis (carrying forward student's last recorded mastery level)
-    # If week 1 is missing, backfill with week 2 or cohort city median
-    city_medians = df.groupby('cohort_city')[quiz_cols].transform('median')
-    df[quiz_cols] = df[quiz_cols].fillna(city_medians)
-    df[quiz_cols] = df[quiz_cols].ffill(axis=1).bfill(axis=1).fillna(50.0)
+    # 3-Way Stratified Split: Train 70%, Val 15%, Test 15%
+    train_df, temp_df = train_test_split(df, test_size=0.30, random_state=random_state, stratify=df['dropped_out'])
+    val_df, test_df = train_test_split(temp_df, test_size=0.50, random_state=random_state, stratify=temp_df['dropped_out'])
     
-    # Project score imputation (median by dropped_out status for training labels)
-    proj_medians = df.groupby('dropped_out')['project_score'].transform('median')
-    df['project_score'] = df['project_score'].fillna(proj_medians).fillna(60.0)
+    train_df = train_df.copy()
+    val_df = val_df.copy()
+    test_df = test_df.copy()
     
-    # Feature Engineering:
-    # - Quiz trajectory slope / drop (week 1 to week 5)
-    df['score_delta_w1_w5'] = df['week_1_quiz'] - df['week_5_quiz']
-    df['quiz_mean'] = df[quiz_cols].mean(axis=1)
-    df['quiz_std'] = df[quiz_cols].std(axis=1).fillna(0.0)
-    df['quiz_min'] = df[quiz_cols].min(axis=1)
-    df['recent_performance_ratio'] = df['week_5_quiz'] / (df['week_1_quiz'] + 1e-5)
+    print(f"Dataset Split Sizes -> Train: {len(train_df)} (70%), Val: {len(val_df)} (15%), Test: {len(test_df)} (15%)")
     
-    print("Imputation and feature engineering complete. No NaNs remaining.")
-    return df
+    # Impute quiz scores using ONLY training set city medians (no target used!)
+    city_medians_train = train_df.groupby('cohort_city')[quiz_cols].median()
+    global_medians_train = train_df[quiz_cols].median()
+    
+    for split_df in [train_df, val_df, test_df]:
+        for col in quiz_cols:
+            city_col_map = city_medians_train[col].to_dict()
+            imputed_city = split_df['cohort_city'].map(city_col_map).fillna(global_medians_train[col])
+            split_df[col] = split_df[col].fillna(imputed_city)
+            
+        # Forward fill along temporal axis to carry forward demonstrated competence
+        split_df[quiz_cols] = split_df[quiz_cols].ffill(axis=1).bfill(axis=1).fillna(50.0)
+        
+        # Feature Engineering:
+        # Full trajectory features
+        split_df['score_delta_w1_w5'] = split_df['week_1_quiz'] - split_df['week_5_quiz']
+        split_df['quiz_mean'] = split_df[quiz_cols].mean(axis=1)
+        split_df['quiz_std'] = split_df[quiz_cols].std(axis=1).fillna(0.0)
+        split_df['quiz_min'] = split_df[quiz_cols].min(axis=1)
+        split_df['recent_performance_ratio'] = split_df['week_5_quiz'] / (split_df['week_1_quiz'] + 1e-5)
+        
+        # Early risk features (Weeks 1-3 only)
+        w13_cols = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz']
+        split_df['score_delta_w1_w3'] = split_df['week_1_quiz'] - split_df['week_3_quiz']
+        split_df['early_mean'] = split_df[w13_cols].mean(axis=1)
+        split_df['early_min'] = split_df[w13_cols].min(axis=1)
+        split_df['early_performance_ratio'] = split_df['week_3_quiz'] / (split_df['week_1_quiz'] + 1e-5)
+        
+    print("Leak-free preprocessing complete. Training statistics strictly isolated.")
+    return train_df, val_df, test_df
 
 # ==============================================================================
 # 2. PYTORCH DATASETS
 # ==============================================================================
 
-class LearnerTabularDataset(Dataset):
+class TabularDataset(Dataset):
     def __init__(self, X: np.ndarray, y: np.ndarray):
         self.X = torch.tensor(X, dtype=torch.float32)
         self.y = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
@@ -110,10 +132,9 @@ class LearnerTabularDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-class LearnerSequenceDataset(Dataset):
+class SequenceDataset(Dataset):
     def __init__(self, sequences: np.ndarray, targets: np.ndarray):
-        # sequences shape: (batch_size, seq_len=5, input_dim=1)
-        self.sequences = torch.tensor(sequences, dtype=torch.float32).unsqueeze(-1)
+        self.sequences = torch.tensor(sequences, dtype=torch.float32).unsqueeze(-1) # (N, 5, 1)
         self.targets = torch.tensor(targets, dtype=torch.float32).unsqueeze(1)
         
     def __len__(self):
@@ -128,9 +149,8 @@ class LearnerSequenceDataset(Dataset):
 
 class LearnerRiskClassifier(nn.Module):
     """
-    Sprint 2: Supervised Feed-Forward Multi-Layer Perceptron (MLP)
-    Classifies learner as 'High Risk' (1) vs 'Low Risk' (0).
-    Features BatchNorm and Dropout to prevent overfitting on tabular features.
+    Sprint 2: Supervised Feed-Forward Multi-Layer Perceptron (MLP).
+    Uses BatchNorm to stabilize learning and Dropout(0.25) to prevent co-adaptation.
     """
     def __init__(self, input_dim: int, hidden_dim: int = 64, dropout_rate: float = 0.25):
         super(LearnerRiskClassifier, self).__init__()
@@ -147,14 +167,14 @@ class LearnerRiskClassifier(nn.Module):
             
             nn.Linear(hidden_dim // 2, 16),
             nn.ReLU(),
-            nn.Linear(16, 1)  # Raw logits for BCEWithLogitsLoss
+            nn.Linear(16, 1)
         )
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
         
     def extract_latent_features(self, x: torch.Tensor) -> torch.Tensor:
-        """Extracts penultimate layer latent representations for clustering."""
+        """Extracts penultimate 16-dimensional latent representations for clustering."""
         with torch.no_grad():
             h1 = torch.relu(self.net[1](self.net[0](x)))
             h2 = torch.relu(self.net[5](self.net[4](h1)))
@@ -163,10 +183,10 @@ class LearnerRiskClassifier(nn.Module):
 
 class LearnerSequenceLSTM(nn.Module):
     """
-    Sprint 3: Deep Sequence LSTM Model
-    Processes temporal 5-week quiz score vectors [q1, q2, q3, q4, q5].
-    Utilizes forget gates to filter out early noise and preserve long-term trend
-    for final capstone project score prediction.
+    Sprint 3: Deep Sequence LSTM Model.
+    Processes weekly quiz trajectories to forecast capstone outcomes.
+    The forget gate modulates memory retention while the additive cell state
+    enables constant error propagation without vanishing gradients.
     """
     def __init__(self, input_size: int = 1, hidden_size: int = 32, num_layers: int = 2, dropout_rate: float = 0.2):
         super(LearnerSequenceLSTM, self).__init__()
@@ -184,323 +204,351 @@ class LearnerSequenceLSTM(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(hidden_size, 16),
             nn.ReLU(),
-            nn.Linear(16, 1) # Predicts continuous final project score
+            nn.Linear(16, 1)
         )
         
     def forward(self, x: torch.Tensor):
-        # x: (batch_size, seq_len=5, input_size=1)
         lstm_out, (hn, cn) = self.lstm(x)
-        # Use final hidden state from top LSTM layer
-        last_hidden = hn[-1] # shape: (batch_size, hidden_size)
+        # Use top-layer final hidden state h_5
+        last_hidden = hn[-1]
         out = self.fc(last_hidden)
         return out, (hn, cn)
 
 # ==============================================================================
-# 4. TRAINING & EVALUATION FUNCTIONS
+# 4. SPRINT 2 TRAINING: EXPERIMENT A (EARLY) & EXPERIMENT B (FULL)
 # ==============================================================================
 
-def train_risk_classifier(df: pd.DataFrame, models_dir: str, epochs: int = 70, batch_size: int = 32):
+def train_risk_model(train_df, val_df, test_df, feature_cols, exp_name, epochs=60, batch_size=32):
     """
-    Trains the Sprint 2 Supervised Risk Classifier.
-    Applies class-weighted loss and optimal decision thresholding to guarantee F1 >= 0.82
-    and minimize false negatives for High Risk learners.
+    Trains a supervised risk model with early stopping on VALIDATION set,
+    followed by a single uncorrupted evaluation on the TEST set.
     """
-    print("\n" + "="*60)
-    print("SPRINT 2: TRAINING SUPERVISED RISK CLASSIFIER (MLP)")
-    print("="*60)
+    print(f"\n--- Training {exp_name} ({len(feature_cols)} Features) ---")
+    print(f"Features: {feature_cols}")
     
-    feature_cols = [
-        'week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'week_4_quiz', 'week_5_quiz',
-        'score_delta_w1_w5', 'quiz_mean', 'quiz_std', 'quiz_min',
-        'recent_performance_ratio', 'missing_quiz_count'
-    ]
+    X_train = train_df[feature_cols].values
+    y_train = train_df['dropped_out'].values
     
-    X = df[feature_cols].values
-    y = df['dropped_out'].values
+    X_val = val_df[feature_cols].values
+    y_val = val_df['dropped_out'].values
     
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.20, random_state=42, stratify=y
-    )
+    X_test = test_df[feature_cols].values
+    y_test = test_df['dropped_out'].values
     
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
     X_test_scaled = scaler.transform(X_test)
     
-    # Calculate pos_weight to penalize False Negatives heavily (vital for Sprints success)
     pos_count = np.sum(y_train == 1)
     neg_count = np.sum(y_train == 0)
-    pos_weight_val = neg_count / (pos_count + 1e-5)
-    print(f"Class imbalance: {neg_count} Low Risk vs {pos_count} High Risk. Pos Weight: {pos_weight_val:.2f}")
+    pos_weight = neg_count / (pos_count + 1e-5)
     
-    train_dataset = LearnerTabularDataset(X_train_scaled, y_train)
-    test_dataset = LearnerTabularDataset(X_test_scaled, y_test)
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(TabularDataset(X_train_scaled, y_train), batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(TabularDataset(X_val_scaled, y_val), batch_size=batch_size, shuffle=False)
     
     model = LearnerRiskClassifier(input_dim=len(feature_cols), hidden_dim=64, dropout_rate=0.25)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight_val * 1.2]))
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([pos_weight * 1.1]))
     optimizer = optim.AdamW(model.parameters(), lr=0.003, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=4)
     
-    best_f1 = 0.0
-    best_weights_path = os.path.join(models_dir, 'risk_classifier.pth')
-    
-    train_losses = []
+    best_val_f1 = 0.0
+    best_state = None
+    best_threshold = 0.45
     
     for epoch in range(epochs):
         model.train()
-        epoch_loss = 0.0
         for batch_X, batch_y in train_loader:
             optimizer.zero_grad()
             logits = model(batch_X)
             loss = criterion(logits, batch_y)
             loss.backward()
             optimizer.step()
-            epoch_loss += loss.item()
             
-        epoch_loss /= len(train_loader)
-        train_losses.append(epoch_loss)
-        
-        # Validation
+        # VALIDATION EVALUATION (Model selection on Validation ONLY)
         model.eval()
-        all_preds = []
-        all_targets = []
+        val_probs, val_targets = [], []
         with torch.no_grad():
-            for batch_X, batch_y in test_loader:
-                logits = model(batch_X)
-                probs = torch.sigmoid(logits).squeeze().numpy()
-                all_preds.extend(probs)
-                all_targets.extend(batch_y.squeeze().numpy())
+            for batch_X, batch_y in val_loader:
+                probs = torch.sigmoid(model(batch_X)).squeeze().numpy()
+                val_probs.extend(probs)
+                val_targets.extend(batch_y.squeeze().numpy())
                 
-        all_preds = np.array(all_preds)
-        all_targets = np.array(all_targets)
+        val_probs = np.array(val_probs)
+        val_targets = np.array(val_targets)
         
-        # Calibrated decision threshold (0.42) to minimize false negatives
-        binary_preds = (all_preds >= 0.42).astype(int)
-        val_f1 = f1_score(all_targets, binary_preds, pos_label=1)
-        val_recall = recall_score(all_targets, binary_preds, pos_label=1)
+        # Calibrate threshold on VALIDATION set
+        best_t, best_t_f1 = 0.5, 0.0
+        for t in np.arange(0.35, 0.60, 0.05):
+            preds_t = (val_probs >= t).astype(int)
+            f1_t = f1_score(val_targets, preds_t, pos_label=1, zero_division=0)
+            if f1_t > best_t_f1:
+                best_t_f1 = f1_t
+                best_t = t
+                
+        scheduler.step(best_t_f1)
         
-        scheduler.step(val_f1)
-        
-        if val_f1 > best_f1:
-            best_f1 = val_f1
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'feature_cols': feature_cols,
-                'scaler_mean': scaler.mean_,
-                'scaler_scale': scaler.scale_,
-                'decision_threshold': 0.42,
-                'best_f1': best_f1
-            }, best_weights_path)
+        if best_t_f1 > best_val_f1:
+            best_val_f1 = best_t_f1
+            best_threshold = best_t
+            best_state = model.state_dict().copy()
             
-        if (epoch + 1) % 10 == 0 or epoch == epochs - 1:
-            print(f"Epoch [{epoch+1:02d}/{epochs:02d}] - Loss: {epoch_loss:.4f} - Val F1 (High Risk): {val_f1:.4f} - Val Recall: {val_recall:.4f}")
-            
-    # Final Evaluation on Test Set using saved best model
-    checkpoint = torch.load(best_weights_path, weights_only=False)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    # Load best validation model
+    model.load_state_dict(best_state)
     model.eval()
     
+    # FINAL INDEPENDENT TEST EVALUATION
     with torch.no_grad():
         test_logits = model(torch.tensor(X_test_scaled, dtype=torch.float32))
         test_probs = torch.sigmoid(test_logits).squeeze().numpy()
         
-    final_preds = (test_probs >= 0.42).astype(int)
-    final_f1 = f1_score(y_test, final_preds, pos_label=1)
-    final_prec = precision_score(y_test, final_preds, pos_label=1)
-    final_rec = recall_score(y_test, final_preds, pos_label=1)
-    final_auc = roc_auc_score(y_test, test_probs)
+    test_preds = (test_probs >= best_threshold).astype(int)
+    test_f1 = f1_score(y_test, test_preds, pos_label=1)
+    test_rec = recall_score(y_test, test_preds, pos_label=1)
+    test_prec = precision_score(y_test, test_preds, pos_label=1)
+    test_auc = roc_auc_score(y_test, test_probs)
     
-    print("\n" + "-"*50)
-    print("CLASSIFICATION REPORT (RISK CLASSIFIER TEST SET):")
-    print(classification_report(y_test, final_preds, target_names=['Low Risk', 'High Risk']))
-    print(f"F1 Score (High Risk): {final_f1:.4f} (Target >= 0.82: {'PASSED [OK]' if final_f1 >= 0.82 else 'FAILED'})")
-    print(f"Recall (High Risk):   {final_rec:.4f} (Minimizing False Negatives)")
-    print(f"ROC-AUC Score:        {final_auc:.4f}")
-    print("-"*50)
+    print(f"Results for {exp_name} on HELD-OUT TEST SET (N={len(y_test)}):")
+    print(f"  - Validation Best F1: {best_val_f1:.4f} (Calibrated Threshold: {best_threshold:.2f})")
+    print(f"  - Test F1 Score:       {test_f1:.4f} (Target >= 0.82: {'PASSED [OK]' if test_f1 >= 0.82 else 'FAILED'})")
+    print(f"  - Test Recall:         {test_rec:.4f}")
+    print(f"  - Test Precision:      {test_prec:.4f}")
+    print(f"  - Test ROC-AUC:        {test_auc:.4f}")
     
-    # Save Latent Space Projections & Visualizations
-    plot_dir = os.path.join(os.path.dirname(models_dir), 'docs')
-    os.makedirs(plot_dir, exist_ok=True)
-    
-    # 1. Confusion Matrix
-    cm = confusion_matrix(y_test, final_preds)
-    plt.figure(figsize=(6, 5))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Low Risk', 'High Risk'], yticklabels=['Low Risk', 'High Risk'])
-    plt.title(f'PyTorch Risk Classifier Confusion Matrix\nF1={final_f1:.2f}, Recall={final_rec:.2f}', fontsize=12, fontweight='bold')
-    plt.xlabel('Predicted Label')
-    plt.ylabel('Ground Truth')
-    plt.tight_layout()
-    cm_path = os.path.join(plot_dir, 'confusion_matrix.png')
-    plt.savefig(cm_path, dpi=300)
-    plt.close()
-    
-    # 2. Latent Space Projection (PCA & t-SNE)
-    with torch.no_grad():
-        latent_reps = model.extract_latent_features(torch.tensor(X_test_scaled, dtype=torch.float32)).numpy()
-        
-    pca = PCA(n_components=2)
-    latent_pca = pca.fit_transform(latent_reps)
-    
-    plt.figure(figsize=(8, 6))
-    scatter = plt.scatter(latent_pca[:, 0], latent_pca[:, 1], c=y_test, cmap='coolwarm', alpha=0.75, edgecolors='k', s=45)
-    plt.colorbar(scatter, label='Dropout Status (0: Retained, 1: High Risk)')
-    plt.title('PyTorch Latent Space Distribution (PCA Projection)\nSeparation of Behavioral Risk Clusters', fontsize=12, fontweight='bold')
-    plt.xlabel('Latent Dimension 1')
-    plt.ylabel('Latent Dimension 2')
-    plt.grid(True, linestyle='--', alpha=0.5)
-    plt.tight_layout()
-    latent_path = os.path.join(plot_dir, 'latent_space_distribution.png')
-    plt.savefig(latent_path, dpi=300)
-    plt.close()
-    
-    print(f"Artifacts saved: {best_weights_path}, {cm_path}, {latent_path}")
-    return model, final_f1
+    return {
+        'model': model,
+        'feature_cols': feature_cols,
+        'scaler': scaler,
+        'threshold': best_threshold,
+        'val_f1': best_val_f1,
+        'test_f1': test_f1,
+        'test_rec': test_rec,
+        'test_prec': test_prec,
+        'test_auc': test_auc,
+        'X_test_scaled': X_test_scaled,
+        'y_test': y_test,
+        'test_preds': test_preds,
+        'test_probs': test_probs
+    }
 
-def train_sequence_lstm(df: pd.DataFrame, models_dir: str, epochs: int = 50, batch_size: int = 32):
+# ==============================================================================
+# 5. SPRINT 3 TRAINING: LSTM SEQUENCE REGRESSION (NO TARGET IMPUTATION)
+# ==============================================================================
+
+def train_sequence_lstm(train_df, val_df, test_df, epochs=50, batch_size=32):
     """
-    Trains the Sprint 3 LSTM Sequence Predictor.
-    Processes weekly quiz trajectories [W1, W2, W3, W4, W5] to predict capstone project score.
+    Trains PyTorch LSTM strictly on learners who submitted their capstone project.
+    Eliminates target imputation leakage.
+    Evaluates on independent validation set, tests on held-out test set.
     """
     print("\n" + "="*60)
-    print("SPRINT 3: TRAINING DEEP SEQUENCE LSTM MODEL")
+    print("SPRINT 3: DEEP SEQUENCE LSTM MODEL TRAINING")
     print("="*60)
     
     seq_cols = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'week_4_quiz', 'week_5_quiz']
-    sequences = df[seq_cols].values # (N, 5)
-    targets = df['project_score'].values # (N,)
     
-    # Normalize sequence scores to [0, 1] range for stable LSTM recurrence
-    seq_min, seq_max = 0.0, 100.0
-    sequences_norm = (sequences - seq_min) / (seq_max - seq_min)
-    targets_norm = (targets - seq_min) / (seq_max - seq_min)
+    # Filter strictly to actual submissions
+    tr_clean = train_df[train_df['project_score'].notna()].copy()
+    va_clean = val_df[val_df['project_score'].notna()].copy()
+    te_clean = test_df[test_df['project_score'].notna()].copy()
     
-    X_train, X_test, y_train, y_test = train_test_split(
-        sequences_norm, targets_norm, test_size=0.20, random_state=42
-    )
+    print(f"Learners with confirmed capstone project submissions:")
+    print(f"  Train: {len(tr_clean)}, Val: {len(va_clean)}, Test: {len(te_clean)}")
     
-    train_dataset = LearnerSequenceDataset(X_train, y_train)
-    test_dataset = LearnerSequenceDataset(X_test, y_test)
+    # Scale sequences and targets to [0, 1]
+    X_train = tr_clean[seq_cols].values / 100.0
+    y_train = tr_clean['project_score'].values / 100.0
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    X_val = va_clean[seq_cols].values / 100.0
+    y_val = va_clean['project_score'].values / 100.0
+    
+    X_test = te_clean[seq_cols].values / 100.0
+    y_test = te_clean['project_score'].values / 100.0
+    
+    train_loader = DataLoader(SequenceDataset(X_train, y_train), batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(SequenceDataset(X_val, y_val), batch_size=batch_size, shuffle=False)
     
     model = LearnerSequenceLSTM(input_size=1, hidden_size=32, num_layers=2, dropout_rate=0.2)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-5)
     
-    best_loss = float('inf')
-    best_lstm_path = os.path.join(models_dir, 'sequence_predictor.pth')
+    best_val_loss = float('inf')
+    best_lstm_state = None
     
     for epoch in range(epochs):
         model.train()
-        epoch_loss = 0.0
         for batch_seqs, batch_targets in train_loader:
             optimizer.zero_grad()
             preds, _ = model(batch_seqs)
             loss = criterion(preds, batch_targets)
             loss.backward()
             optimizer.step()
-            epoch_loss += loss.item()
             
-        epoch_loss /= len(train_loader)
-        
-        # Test evaluation
+        # Validation
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
-            for batch_seqs, batch_targets in test_loader:
+            for batch_seqs, batch_targets in val_loader:
                 preds, _ = model(batch_seqs)
                 val_loss += criterion(preds, batch_targets).item()
-        val_loss /= len(test_loader)
+        val_loss /= len(val_loader)
         
-        if val_loss < best_loss:
-            best_loss = val_loss
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'seq_cols': seq_cols,
-                'hidden_size': 32,
-                'num_layers': 2,
-                'val_mse': val_loss
-            }, best_lstm_path)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_lstm_state = model.state_dict().copy()
             
-        if (epoch + 1) % 10 == 0 or epoch == epochs - 1:
-            print(f"Epoch [{epoch+1:02d}/{epochs:02d}] - Train MSE: {epoch_loss:.5f} - Test MSE: {val_loss:.5f}")
-            
-    # Evaluation on original 0-100 scale
-    checkpoint = torch.load(best_lstm_path, weights_only=False)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    # Load best validation model
+    model.load_state_dict(best_lstm_state)
     model.eval()
+    
+    # FINAL TEST EVALUATION
     with torch.no_grad():
         test_seq_tensor = torch.tensor(X_test, dtype=torch.float32).unsqueeze(-1)
         test_preds_norm, _ = model(test_seq_tensor)
-        preds_rescaled = test_preds_norm.squeeze().numpy() * 100.0
-        targets_rescaled = y_test * 100.0
+        preds_100 = test_preds_norm.squeeze().numpy() * 100.0
+        targets_100 = y_test * 100.0
         
-    rmse = np.sqrt(mean_squared_error(targets_rescaled, preds_rescaled))
-    r2 = r2_score(targets_rescaled, preds_rescaled)
+    rmse = np.sqrt(mean_squared_error(targets_100, preds_100))
+    r2 = r2_score(targets_100, preds_100)
+    mae = np.mean(np.abs(targets_100 - preds_100))
     
     print("\n" + "-"*50)
-    print("SEQUENCE LSTM EVALUATION (CAPSTONE PREDICTOR):")
-    print(f"Test RMSE: {rmse:.2f} points (on 0-100 scale)")
-    print(f"Test R^2 Score: {r2:.4f}")
+    print(f"SEQUENCE LSTM RESULTS ON HELD-OUT TEST SET (N={len(y_test)}):")
+    print(f"  - Test RMSE: {rmse:.2f} points (on 0-100 scale)")
+    print(f"  - Test MAE:  {mae:.2f} points")
+    print(f"  - Test R^2:  {r2:.4f}")
     print("-"*50)
     
-    # Save Trajectory Prediction Plot
-    plot_dir = os.path.join(os.path.dirname(models_dir), 'docs')
+    return {
+        'model': model,
+        'seq_cols': seq_cols,
+        'val_mse': best_val_loss,
+        'test_rmse': rmse,
+        'test_r2': r2,
+        'test_mae': mae,
+        'X_test': X_test,
+        'y_test_100': targets_100,
+        'preds_100': preds_100
+    }
+
+# ==============================================================================
+# MAIN PIPELINE EXECUTION
+# ==============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Train Sprints Leak-Free PyTorch Models")
+    parser.add_argument('--base_dir', type=str, default=r'C:\Users\mw851\sprints-learner-success-agent')
+    parser.add_argument('--epochs', type=int, default=60)
+    args = parser.parse_args()
+    
+    set_seed(42)
+    csv_path = os.path.join(args.base_dir, 'data', 'sprints_learner_data.csv')
+    models_dir = os.path.join(args.base_dir, 'models')
+    docs_dir = os.path.join(args.base_dir, 'docs')
+    os.makedirs(models_dir, exist_ok=True)
+    os.makedirs(docs_dir, exist_ok=True)
+    
+    # 1. Split & Preprocess
+    train_df, val_df, test_df = load_and_split_data(csv_path)
+    
+    # 2. Experiment A: Proactive Early Risk Classifier (Weeks 1 to 3)
+    early_features = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'score_delta_w1_w3', 'early_mean', 'early_min', 'early_missing_count']
+    exp_a = train_risk_model(train_df, val_df, test_df, early_features, "Experiment A: Proactive Early Risk (Weeks 1-3)", epochs=args.epochs)
+    
+    # 3. Experiment B: Full Trajectory Risk Classifier (Weeks 1 to 5)
+    full_features = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'week_4_quiz', 'week_5_quiz', 'score_delta_w1_w5', 'quiz_mean', 'quiz_std', 'quiz_min', 'recent_performance_ratio', 'missing_quiz_count']
+    exp_b = train_risk_model(train_df, val_df, test_df, full_features, "Experiment B: Full Trajectory Risk (Weeks 1-5)", epochs=args.epochs)
+    
+    # 4. Save Sprint 2 Checkpoint (Holding both models)
+    risk_checkpoint_path = os.path.join(models_dir, 'risk_classifier.pth')
+    torch.save({
+        'model_state_dict': exp_b['model'].state_dict(),
+        'feature_cols': full_features,
+        'scaler_mean': exp_b['scaler'].mean_,
+        'scaler_scale': exp_b['scaler'].scale_,
+        'decision_threshold': exp_b['threshold'],
+        'test_f1': exp_b['test_f1'],
+        'test_recall': exp_b['test_rec'],
+        'early_model_state_dict': exp_a['model'].state_dict(),
+        'early_feature_cols': early_features,
+        'early_scaler_mean': exp_a['scaler'].mean_,
+        'early_scaler_scale': exp_a['scaler'].scale_,
+        'early_threshold': exp_a['threshold'],
+        'early_test_f1': exp_a['test_f1'],
+        'early_test_recall': exp_a['test_rec']
+    }, risk_checkpoint_path)
+    print(f"\nSaved dual risk classifier checkpoint: {risk_checkpoint_path}")
+    
+    # 5. Sprint 3: LSTM Sequence Predictor
+    lstm_results = train_sequence_lstm(train_df, val_df, test_df, epochs=50)
+    lstm_checkpoint_path = os.path.join(models_dir, 'sequence_predictor.pth')
+    torch.save({
+        'model_state_dict': lstm_results['model'].state_dict(),
+        'seq_cols': lstm_results['seq_cols'],
+        'hidden_size': 32,
+        'num_layers': 2,
+        'test_rmse': lstm_results['test_rmse'],
+        'test_r2': lstm_results['test_r2']
+    }, lstm_checkpoint_path)
+    print(f"Saved sequence LSTM checkpoint: {lstm_checkpoint_path}")
+    
+    # 6. Generate Updated Visualizations
+    # A. Confusion Matrix for Full Model
+    cm = confusion_matrix(exp_b['y_test'], exp_b['test_preds'])
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Low Risk', 'High Risk'], yticklabels=['Low Risk', 'High Risk'])
+    plt.title(f"PyTorch Risk Classifier (Test Set N={len(exp_b['y_test'])})\nTest F1={exp_b['test_f1']:.4f} | Recall={exp_b['test_rec']:.4f}", fontsize=11, fontweight='bold')
+    plt.xlabel('Predicted Label')
+    plt.ylabel('Ground Truth')
+    plt.tight_layout()
+    cm_path = os.path.join(docs_dir, 'confusion_matrix.png')
+    plt.savefig(cm_path, dpi=300)
+    plt.close()
+    
+    # B. Latent Space PCA Projection
+    with torch.no_grad():
+        latent_reps = exp_b['model'].extract_latent_features(torch.tensor(exp_b['X_test_scaled'], dtype=torch.float32)).numpy()
+    pca = PCA(n_components=2)
+    latent_pca = pca.fit_transform(latent_reps)
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(latent_pca[:, 0], latent_pca[:, 1], c=exp_b['y_test'], cmap='coolwarm', alpha=0.8, edgecolors='k', s=45)
+    plt.colorbar(scatter, label='Ground Truth Dropout Status (0: Retained, 1: High Risk)')
+    plt.title('PyTorch Latent Space Distribution (Test Set PCA)\nSeparation of Behavioral Risk Clusters', fontsize=12, fontweight='bold')
+    plt.xlabel('Latent Dimension 1')
+    plt.ylabel('Latent Dimension 2')
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    latent_path = os.path.join(docs_dir, 'latent_space_distribution.png')
+    plt.savefig(latent_path, dpi=300)
+    plt.close()
+    
+    # C. LSTM Trajectory Forecast Plot
     plt.figure(figsize=(9, 5))
-    sample_indices = [0, 5, 12, 25, 40]
     weeks = [1, 2, 3, 4, 5]
+    sample_indices = [0, 4, 10, 18, 25]
     for idx in sample_indices:
-        actual_trajectory = X_test[idx] * 100.0
-        predicted_capstone = preds_rescaled[idx]
-        actual_capstone = targets_rescaled[idx]
-        p = plt.plot(weeks, actual_trajectory, marker='o', label=f'Learner {idx+1} Trajectory')
+        actual_trajectory = lstm_results['X_test'][idx] * 100.0
+        pred_capstone = lstm_results['preds_100'][idx]
+        actual_capstone = lstm_results['y_test_100'][idx]
+        p = plt.plot(weeks, actual_trajectory, marker='o', label=f'Learner #{idx+1} Quizzes')
         color = p[0].get_color()
-        plt.scatter(6, predicted_capstone, color=color, marker='*', s=120, label=f'Pred Project: {predicted_capstone:.1f}' if idx == 0 else "")
-        plt.scatter(6, actual_capstone, color=color, marker='x', s=100, label=f'Actual Project: {actual_capstone:.1f}' if idx == 0 else "")
+        plt.scatter(6, pred_capstone, color=color, marker='*', s=140, label=f'Pred: {pred_capstone:.1f}' if idx == 0 else "")
+        plt.scatter(6, actual_capstone, color=color, marker='x', s=100, label=f'Actual: {actual_capstone:.1f}' if idx == 0 else "")
         
-    plt.title('PyTorch LSTM 5-Week Sequence Modeling & Project Prediction\nMitigating Noise via Forget Gate', fontsize=12, fontweight='bold')
-    plt.xlabel('Bootcamp Timeline (Weeks 1-5 Quizzes, Week 6 Capstone Project)')
+    plt.title(f"PyTorch LSTM 5-Week Sequence Modeling & Capstone Forecast\nTest RMSE: {lstm_results['test_rmse']:.2f} pts | R² = {lstm_results['test_r2']:.4f}", fontsize=12, fontweight='bold')
+    plt.xlabel('Bootcamp Timeline')
     plt.ylabel('Assessment Score')
     plt.xticks([1, 2, 3, 4, 5, 6], ['W1 Quiz', 'W2 Quiz', 'W3 Quiz', 'W4 Quiz', 'W5 Quiz', 'Capstone'])
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left", fontsize=8)
     plt.tight_layout()
-    lstm_plot_path = os.path.join(plot_dir, 'lstm_sequence_predictions.png')
+    lstm_plot_path = os.path.join(docs_dir, 'lstm_sequence_predictions.png')
     plt.savefig(lstm_plot_path, dpi=300)
     plt.close()
     
-    print(f"LSTM Artifacts saved: {best_lstm_path}, {lstm_plot_path}")
-    return model
-
-# ==============================================================================
-# MAIN EXECUTION ENTRYPOINT
-# ==============================================================================
-
-def main():
-    parser = argparse.ArgumentParser(description="Train Sprints PyTorch Models")
-    parser.add_argument('--csv_path', type=str, default=r'C:\Users\mw851\.gemini\antigravity\scratch\sprints_capstone\data\sprints_learner_data.csv')
-    parser.add_argument('--models_dir', type=str, default=r'C:\Users\mw851\.gemini\antigravity\scratch\sprints_capstone\models')
-    parser.add_argument('--epochs', type=int, default=60)
-    parser.add_argument('--batch_size', type=int, default=32)
-    args = parser.parse_args()
-    
-    set_seed(42)
-    os.makedirs(args.models_dir, exist_ok=True)
-    
-    df = load_and_preprocess_data(args.csv_path)
-    
-    # Train Sprint 2 Model
-    risk_model, f1 = train_risk_classifier(df, args.models_dir, epochs=args.epochs, batch_size=args.batch_size)
-    
-    # Train Sprint 3 Model
-    lstm_model = train_sequence_lstm(df, args.models_dir, epochs=50, batch_size=args.batch_size)
-    
-    print("\n" + "="*60)
-    print("ALL PYTORCH TRAINING COMPLETED SUCCESSFULLY!")
-    print(f"Final High-Risk F1 Score: {f1:.4f} (Requirement >= 0.82 MET)")
+    print(f"\nArtifacts generated & saved to {docs_dir}")
+    print("="*60)
+    print("LEAK-FREE PYTORCH MODELING COMPLETED WITH FULL VALIDATION!")
     print("="*60)
 
 if __name__ == '__main__':

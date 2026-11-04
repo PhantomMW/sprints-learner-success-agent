@@ -147,13 +147,14 @@ erDiagram
 
 | Evaluation Criterion | Minimum Client Threshold | Outcome Achieved by Sprints Agent | Performance Status |
 | :--- | :--- | :--- | :---: |
-| **Model F1 Score** | $\ge 0.82$ on Test Set | **1.0000 (100%)** | 🟢 **PASSED (EXCEEDED)** |
-| **Model Recall (High Risk)**| Minimize False Negatives | **1.0000 (0 False Negatives)** | 🟢 **OPTIMAL SAFETY NET** |
-| **Workflow Latency** | $< 3.5$ seconds (3,500 ms) | **154.4 ms (Max: 296 ms)** | 🟢 **22x FASTER THAN SLA** |
-| **Sequence Modeling** | LSTM with Forget Gate analysis | **$R^2 = 0.8841$, RMSE = 7.80 pts** | 🟢 **PASSED** |
-| **spaCy NER Extraction** | Module Names & Dates | **100% extraction precision** | 🟢 **PASSED** |
-| **Word2Vec vs FastText** | Conceptual & Empirical Benchmark | Comprehensive comparative report | 🟢 **PASSED** |
-| **Deliberative Routing** | Escalate negative sentiment | Automated routing logic verified | 🟢 **PASSED** |
+| **Model F1 Score (Exp A: W1-W3 Proactive)** | $\ge 0.82$ on Test Set | **0.9714 (Recall: 0.9855, ROC-AUC: 0.9996)** | 🟢 **PASSED (EARLY RISK INTERVENTION)** |
+| **Model F1 Score (Exp B: W1-W5 Full)** | $\ge 0.82$ on Test Set | **1.0000 (Recall: 1.0000, 0 False Negatives)** | 🟢 **OPTIMAL SAFETY NET** |
+| **Workflow Latency** | $< 3.5$ seconds (3,500 ms) | **154.5 ms (Max: 296 ms)** | 🟢 **22x FASTER THAN SLA** |
+| **Sequence Modeling (No Target Leakage)** | LSTM on real submissions ($N=1,639$) | **$R^2 = 0.8124$, RMSE = 7.85 pts, MAE = 5.67** | 🟢 **PASSED** |
+| **spaCy NER Benchmark (50 Samples)** | Module & Date Extraction | **Module F1: 0.8125 \| Date F1: 0.9091** | 🟢 **PASSED** |
+| **Word2Vec vs FastText OOV Test** | Empirical Benchmark | Tested: Word2Vec KeyError on typos vs FastText n-grams | 🟢 **PASSED** |
+| **Semantic Vector RAG** | Dense Vector Retrieval | Cosine similarity ranking over syllabus vectors | 🟢 **PASSED** |
+| **Deliberative Routing & DB Persistence**| Escalate negative sentiment | Escalated tickets persisted to SQLite `support_tickets` | 🟢 **PASSED** |
 
 ---
 
@@ -162,22 +163,25 @@ erDiagram
 ```
 sprints_capstone/
 ├── data/
-│   ├── sprints_learner_data.csv       # Cleaned 2,000-learner synthetic dataset
+│   ├── sprints_learner_data.csv       # Cleaned 2,000-learner dataset (LRN-1001..3000)
 │   └── processed_embeddings.bin       # Gensim dense Word2Vec binary embeddings
 ├── database/
-│   ├── schema_design.erd              # Detailed ERD specifications and dictionary
-│   ├── setup_and_queries.sql          # DDL, DML seed data, and analytical SQL queries
-│   └── sprints_learners.db            # Executed SQLite relational database
+│   ├── schema.sql                     # Modular 3NF DDL schema definition & indexes
+│   ├── seed.sql                       # Clean reference seed data
+│   ├── analytics.sql                  # Analytical queries including Query 5 CTE fix
+│   ├── schema_design.erd              # Detailed ERD specifications and data dictionary
+│   ├── setup_and_queries.sql          # Unified SQL setup and verified queries
+│   └── sprints_learners.db            # SQLite relational database (2,000 learners, 9,101 quizzes)
 ├── models/
-│   ├── risk_classifier.pth            # Supervised Feed-Forward MLP (F1=1.000)
-│   ├── sequence_predictor.pth         # PyTorch Sequence LSTM (R²=0.8841)
+│   ├── risk_classifier.pth            # Supervised PyTorch Risk MLP (Exp A F1=0.9714 / Exp B F1=1.000)
+│   ├── sequence_predictor.pth         # PyTorch Sequence LSTM (R²=0.8124, RMSE=7.85 pts)
 │   └── word2vec.model                 # Trained Gensim curriculum Word2Vec model
 ├── notebooks/
-│   ├── 01_eda_and_sql_sprint1.ipynb   # Executed EDA, SQL queries, & governorate charts
+│   ├── 01_eda_and_sql_sprint1.ipynb   # Executed EDA, SQL Query 5 CTE, & governorate charts
 │   ├── 02_ml_dl_modeling_sprint2_3.ipynb # PyTorch models, LSTM gates, & latent space PCA
-│   └── 03_nlp_processing_sprint4.ipynb  # spaCy NER, TextBlob, Word2Vec, & n8n simulation
+│   └── 03_nlp_processing_sprint4.ipynb  # spaCy NER benchmark, Word2Vec vs FastText, & n8n simulation
 ├── n8n_workflows/
-│   └── learner_success_agent.json     # Complete export of event-driven n8n workflow
+│   └── learner_success_agent.json     # Production n8n workflow with Webhook, Router & DB Escalation
 ├── docs/
 │   ├── Sprints_Model_Evaluation_Report.pdf # Comprehensive 4-page technical evaluation PDF
 │   ├── Sprints_Architecture_Presentation.pdf # 10-slide executive presentation PDF
@@ -185,16 +189,17 @@ sprints_capstone/
 │   ├── latent_space_distribution.png  # Penultimate layer PCA cluster projection
 │   └── lstm_sequence_predictions.png  # 5-week trajectory vs capstone forecast plot
 ├── scripts/
-│   ├── train_pytorch.py               # Modular PyTorch training & evaluation script
-│   ├── nlp_pipeline.py                # spaCy NER, TextBlob, Word2Vec & routing module
+│   ├── populate_db_from_csv.py        # Populates 2,000 learners and 9,101 quizzes into SQLite
+│   ├── train_pytorch.py               # Leak-free PyTorch training & evaluation script
+│   ├── nlp_pipeline.py                # spaCy NER benchmark, Word2Vec, Semantic RAG & Router
 │   ├── test_db.py                     # Database execution verification script
 │   ├── test_api_and_n8n.py            # Automated API latency & Deliberative Agent test
-│   ├── build_notebooks.py             # Notebook synthesis script
+│   ├── build_notebooks.py             # Notebook synthesis and execution script
 │   ├── build_report_pdf.py            # Technical report PDF compiler
 │   ├── build_presentation_pdf.py      # 10-slide presentation PDF compiler
 │   └── generate_demo_video.py         # Video generator script
 ├── api/
-│   └── app.py                         # Production FastAPI inference microservice
+│   └── app.py                         # Production FastAPI inference microservice with SQLite persistence
 ├── demo/
 │   ├── Demo_Walkthrough.mp4           # 3.5-minute narrated demo walkthrough video
 │   └── DEMO_SCRIPT.md                 # Verbatim walkthrough script & timestamps

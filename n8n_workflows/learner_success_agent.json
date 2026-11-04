@@ -13,42 +13,42 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1.1,
       "position": [
-        250,
-        300
+        240,
+        320
       ],
       "webhookId": "sprints-learner-query-webhook"
     },
     {
       "parameters": {
-        "jsCode": "// Ingest learner query and attach metadata\nconst body = $json.body || $json;\nreturn {\n  learner_id: body.learner_id || 'LRN-UNKNOWN',\n  query_text: body.query_text || '',\n  cohort_city: body.cohort_city || 'Cairo',\n  received_at: new Date().toISOString()\n};"
+        "jsCode": "// 1. Ingest learner query and strictly validate payload\nconst body = $json.body || $json;\nconst query = (body.query_text || '').trim();\nif (!query) {\n  throw new Error(\"Bad Request: 'query_text' cannot be blank or contain only whitespace.\");\n}\n\nreturn {\n  learner_id: body.learner_id || 'LRN-1001',\n  query_text: query,\n  cohort_city: body.cohort_city || 'Cairo',\n  received_at: new Date().toISOString()\n};"
       },
       "id": "node-parse-query",
-      "name": "Parse Incoming Query",
+      "name": "Parse & Validate Query",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        470,
-        300
+        460,
+        320
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8000/api/v1/analyze",
+        "url": "={{ $env.FASTAPI_BASE_URL || 'http://sprints-ai-api:8000' }}/api/v1/analyze",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"query_text\": \"{{ $json.query_text }}\"\n}",
         "options": {
-          "timeout": 3000
+          "timeout": 3500
         }
       },
       "id": "node-sentiment-ner-router",
-      "name": "TextBlob Sentiment & Deliberative Router",
+      "name": "Analyze Sentiment, NER & Vector RAG",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        690,
-        300
+        680,
+        320
       ]
     },
     {
@@ -63,44 +63,64 @@
         }
       },
       "id": "node-deliberative-if",
-      "name": "Deliberative Router (Escalate?)",
+      "name": "Deliberative Decision Router",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
         920,
-        300
+        320
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Human Escalation Handling Node\nconst data = $json;\nreturn {\n  ticket_id: 'TCK-' + Date.now().toString().slice(-6),\n  learner_id: data.learner_id,\n  status: 'Pending_Human_Escalation',\n  priority: data.priority || 'Critical',\n  assigned_queue: data.assigned_queue,\n  sentiment_polarity: data.sentiment.polarity,\n  escalation_reason: 'Negative sentiment or dropout risk detected by Deliberative Agent',\n  response_message: data.agent_response,\n  execution_latency_ms: data.execution_latency_ms,\n  sla_met: data.sla_met\n};"
+        "method": "POST",
+        "url": "={{ $env.FASTAPI_BASE_URL || 'http://sprints-ai-api:8000' }}/api/v1/tickets/escalate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"query_text\": \"{{ $json.query_text }}\",\n  \"module_id\": \"{{ $json.extracted_modules && $json.extracted_modules.length > 0 ? ('MOD-' + $json.extracted_modules[0].toUpperCase()) : 'MOD-PYT-02' }}\",\n  \"sentiment_polarity\": {{ $json.sentiment.polarity }},\n  \"sentiment_subjectivity\": {{ $json.sentiment.subjectivity }},\n  \"priority\": \"{{ $json.priority }}\",\n  \"status\": \"Pending_Human_Escalation\"\n}",
+        "options": {
+          "timeout": 3000
+        }
       },
-      "id": "node-human-escalation",
-      "name": "Escalate to Human Mentor",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "node-persist-escalation-db",
+      "name": "Persist Escalation to SQLite DB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
       "position": [
         1160,
-        180
+        200
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Automated Pedagogical RAG Node\nconst data = $json;\nreturn {\n  ticket_id: 'TCK-AUTO-' + Date.now().toString().slice(-6),\n  learner_id: data.learner_id,\n  status: 'Resolved_By_Agent',\n  priority: 'Low',\n  assigned_queue: 'Sprints_AI_Curriculum_Agent',\n  extracted_modules: data.extracted_modules,\n  extracted_dates: data.extracted_dates,\n  retrieved_knowledge: data.retrieved_knowledge,\n  response_message: data.agent_response,\n  execution_latency_ms: data.execution_latency_ms,\n  sla_met: data.sla_met\n};"
+        "jsCode": "// Prepare Escalate Response to Learner\nconst prev = $('Analyze Sentiment, NER & Vector RAG').first().json;\nconst dbResult = $json;\n\nreturn {\n  status: 'escalated',\n  ticket_id: dbResult.ticket_id || ('TCK-' + Date.now().toString().slice(-6)),\n  learner_id: prev.learner_id,\n  assigned_queue: prev.assigned_queue,\n  priority: prev.priority,\n  db_persisted: true,\n  sentiment: prev.sentiment,\n  response_message: prev.agent_response,\n  execution_latency_ms: prev.execution_latency_ms,\n  sla_met: prev.sla_met\n};"
       },
-      "id": "node-rag-response",
-      "name": "Automated RAG Generation",
+      "id": "node-format-escalation-response",
+      "name": "Format Escalation Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1160,
-        420
+        1380,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Automated Semantic RAG Response\nconst data = $json;\n\nreturn {\n  status: 'resolved_auto',\n  ticket_id: 'TCK-AUTO-' + Date.now().toString().slice(-6),\n  learner_id: data.learner_id,\n  assigned_queue: data.assigned_queue,\n  priority: data.priority,\n  db_persisted: false,\n  extracted_modules: data.extracted_modules,\n  extracted_dates: data.extracted_dates,\n  retrieved_chunk: data.retrieved_chunk,\n  response_message: data.agent_response,\n  execution_latency_ms: data.execution_latency_ms,\n  sla_met: data.sla_met\n};"
+      },
+      "id": "node-format-rag-response",
+      "name": "Format Automated RAG Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        440
       ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"status\": \"success\",\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"ticket_id\": \"{{ $json.ticket_id }}\",\n  \"ticket_status\": \"{{ $json.status }}\",\n  \"priority\": \"{{ $json.priority }}\",\n  \"assigned_queue\": \"{{ $json.assigned_queue }}\",\n  \"response_message\": \"{{ $json.response_message }}\",\n  \"execution_latency_ms\": {{ $json.execution_latency_ms }},\n  \"sla_compliance\": \"{{ $json.sla_met ? 'PASSED (<3.5s)' : 'EXCEEDED' }}\"\n}",
+        "responseBody": "={\n  \"status\": \"{{ $json.status }}\",\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"ticket_id\": \"{{ $json.ticket_id }}\",\n  \"priority\": \"{{ $json.priority }}\",\n  \"assigned_queue\": \"{{ $json.assigned_queue }}\",\n  \"db_persisted\": {{ $json.db_persisted }},\n  \"response_message\": \"{{ $json.response_message }}\",\n  \"execution_latency_ms\": {{ $json.execution_latency_ms }},\n  \"sla_compliance\": \"{{ $json.sla_met ? 'PASSED (<3.5s)' : 'EXCEEDED' }}\"\n}",
         "options": {}
       },
       "id": "node-respond-webhook",
@@ -108,8 +128,8 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1420,
-        300
+        1620,
+        320
       ]
     }
   ],
@@ -118,54 +138,65 @@
       "main": [
         [
           {
-            "node": "Parse Incoming Query",
+            "node": "Parse & Validate Query",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Parse Incoming Query": {
+    "Parse & Validate Query": {
       "main": [
         [
           {
-            "node": "TextBlob Sentiment & Deliberative Router",
+            "node": "Analyze Sentiment, NER & Vector RAG",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "TextBlob Sentiment & Deliberative Router": {
+    "Analyze Sentiment, NER & Vector RAG": {
       "main": [
         [
           {
-            "node": "Deliberative Router (Escalate?)",
+            "node": "Deliberative Decision Router",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Deliberative Router (Escalate?)": {
+    "Deliberative Decision Router": {
       "main": [
         [
           {
-            "node": "Escalate to Human Mentor",
+            "node": "Persist Escalation to SQLite DB",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Automated RAG Generation",
+            "node": "Format Automated RAG Response",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Escalate to Human Mentor": {
+    "Persist Escalation to SQLite DB": {
+      "main": [
+        [
+          {
+            "node": "Format Escalation Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Escalation Response": {
       "main": [
         [
           {
@@ -176,7 +207,7 @@
         ]
       ]
     },
-    "Automated RAG Generation": {
+    "Format Automated RAG Response": {
       "main": [
         [
           {
@@ -192,7 +223,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "sprints-learner-success-agent-v1",
+  "versionId": "sprints-learner-success-agent-v2",
   "id": "sprints-capstone-n8n-workflow",
   "tags": [
     {
@@ -202,6 +233,10 @@
     {
       "name": "RAG",
       "id": "tag-rag"
+    },
+    {
+      "name": "Deliberative Agent",
+      "id": "tag-deliberative"
     },
     {
       "name": "NLP",

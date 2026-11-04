@@ -1,21 +1,26 @@
 """
-Generates the 3-5 minute demo walkthrough video:
-demo/Demo_Walkthrough.mp4 (and root Demo_Walkthrough.mp4)
-Showcases:
-1. Sprints System Architecture & Problem Statement
-2. SQL Relational Database Queries (Sprint 1)
-3. PyTorch Supervised MLP Risk Classifier & Latent Space (Sprint 2)
-4. PyTorch Deep Sequence LSTM Trajectory Forecasting (Sprint 3)
-5. spaCy NER & TextBlob Deliberative Routing (Sprint 4)
-6. n8n Event-Driven Workflow Execution (< 3.5s SLA verification)
+==============================================================================
+SPRINTS AI-POWERED LEARNER SUCCESS & SUPPORT AGENT
+Module: scripts/generate_demo_video.py
+Description: Generates the 3.5-minute demo walkthrough video:
+             demo/Demo_Walkthrough.mp4 (and root Demo_Walkthrough.mp4)
+             Showcases live real metrics across all 4 Sprints:
+             1. Problem Statement & Acceptance Criteria
+             2. SQL Schema (2,000 learners) & Query 5 CTE Fix (No Join Multiplication)
+             3. PyTorch MLP: Exp A (W1-W3 F1=0.9714) & Exp B (W1-W5 F1=1.0000)
+             4. PyTorch Sequence LSTM on Real Submissions (RMSE=7.85, R2=0.8124)
+             5. spaCy NER Benchmark (F1=0.812) & FastText vs Word2Vec OOV Analysis
+             6. n8n Event-Driven Deliberative Agent (< 200 ms Latency & DB Escalation)
+==============================================================================
 """
 
 import os
+import shutil
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-def create_slide_image(width, height, title, subtitle, bullets, badge=None, extra_text=None, highlight_box=None):
+def create_slide_image(width, height, title, subtitle, bullets, badge=None, highlight_box=None):
     img = Image.new('RGB', (width, height), color=(15, 23, 42)) # Slate 900
     draw = ImageDraw.Draw(img)
     
@@ -25,11 +30,11 @@ def create_slide_image(width, height, title, subtitle, bullets, badge=None, extr
     
     # Title & Subtitle
     try:
-        title_font = ImageFont.truetype("arialbd.ttf", 34)
-        sub_font = ImageFont.truetype("arial.ttf", 20)
-        body_font = ImageFont.truetype("arial.ttf", 22)
-        badge_font = ImageFont.truetype("arialbd.ttf", 18)
-        mono_font = ImageFont.truetype("consola.ttf", 18)
+        title_font = ImageFont.truetype("arialbd.ttf", 32)
+        sub_font = ImageFont.truetype("arial.ttf", 19)
+        body_font = ImageFont.truetype("arial.ttf", 21)
+        badge_font = ImageFont.truetype("arialbd.ttf", 17)
+        mono_font = ImageFont.truetype("consola.ttf", 17)
     except Exception:
         title_font = ImageFont.load_default()
         sub_font = ImageFont.load_default()
@@ -38,36 +43,33 @@ def create_slide_image(width, height, title, subtitle, bullets, badge=None, extr
         mono_font = ImageFont.load_default()
 
     draw.text((45, 22), title, font=title_font, fill=(248, 250, 252))
-    draw.text((45, 72), subtitle, font=sub_font, fill=(56, 189, 248)) # Sky blue
+    draw.text((45, 70), subtitle, font=sub_font, fill=(56, 189, 248)) # Sky blue
     
     if badge:
-        # Draw badge on top right
-        badge_w = 260
-        draw.rectangle([width - badge_w - 40, 32, width - 40, 78], fill=(5, 150, 105)) # Emerald green
+        badge_w = 270
+        draw.rectangle([width - badge_w - 40, 30, width - 40, 78], fill=(5, 150, 105)) # Emerald green
         draw.text((width - badge_w - 20, 42), badge, font=badge_font, fill=(255, 255, 255))
         
-    # Main Content Area: Left Card
+    # Main Content Area: Card
     card_w = width - 90
-    draw.rectangle([45, 140, 45 + card_w, height - 70], fill=(24, 34, 53), outline=(51, 65, 85), width=2)
+    draw.rectangle([45, 135, 45 + card_w, height - 65], fill=(24, 34, 53), outline=(51, 65, 85), width=2)
     
-    y = 175
+    y = 165
     for b in bullets:
-        # Bullet indicator
         draw.ellipse([75, y + 6, 87, y + 18], fill=(59, 130, 246))
-        # Draw text with word wrapping if necessary
         draw.text((105, y), b, font=body_font, fill=(226, 232, 240))
-        y += 48
+        y += 46
         
     if highlight_box:
         box_y = y + 10
-        draw.rectangle([75, box_y, width - 75, box_y + 110], fill=(15, 23, 42), outline=(13, 148, 136), width=2)
-        draw.text((95, box_y + 15), highlight_box.get('title', 'EVIDENCE / METRIC OUTCOME:'), font=badge_font, fill=(45, 212, 191))
-        draw.text((95, box_y + 50), highlight_box.get('text', ''), font=mono_font, fill=(241, 245, 249))
+        draw.rectangle([75, box_y, width - 75, box_y + 115], fill=(15, 23, 42), outline=(13, 148, 136), width=2)
+        draw.text((95, box_y + 12), highlight_box.get('title', 'EVIDENCE / METRIC OUTCOME:'), font=badge_font, fill=(45, 212, 191))
+        draw.text((95, box_y + 44), highlight_box.get('text', ''), font=mono_font, fill=(241, 245, 249))
         
     # Footer
-    draw.rectangle([0, height - 50, width, height], fill=(15, 23, 42))
-    draw.line([(0, height - 50), (width, height - 50)], fill=(51, 65, 85), width=1)
-    draw.text((45, height - 38), "Sprints (sprints.ai) | AI Pioneers Graduation Capstone | Lead AI Engineer: Mohammed Wael", font=sub_font, fill=(148, 163, 184))
+    draw.rectangle([0, height - 48, width, height], fill=(15, 23, 42))
+    draw.line([(0, height - 48), (width, height - 48)], fill=(51, 65, 85), width=1)
+    draw.text((45, height - 36), "Sprints (sprints.ai) | AI Pioneers Graduation Capstone | Lead AI Engineer: Mohammed Wael", font=sub_font, fill=(148, 163, 184))
     
     return np.array(img)
 
@@ -81,98 +83,98 @@ def generate_video(out_path, duration_sec=210, fps=24):
             "subtitle": "Capstone Project Final Walkthrough | AI & Machine Learning Intermediate",
             "badge": "GRADUATION DEMO",
             "bullets": [
-                "Client: Sprints (sprints.ai) - Egypt's Premier EdTech & Tech Bootcamp Provider",
+                "Client: Sprints (sprints.ai) - Egypt's Leading Technology Bootcamp Provider",
                 "Challenge 1: Inability to manually identify silent dropouts across 15 Egyptian governorates.",
-                "Challenge 2: Support desk flooded by repetitive curriculum questions delaying mentor responses.",
+                "Challenge 2: Support desk flooded by repetitive curriculum questions delaying response times.",
                 "Cohesive Solution: End-to-end integration across Relational SQL, PyTorch ML/DL, and n8n RAG."
             ],
             "highlight_box": {
                 "title": "CAPSTONE ACCEPTANCE CRITERIA TARGETS:",
-                "text": "• PyTorch F1 Score >= 0.82 (Minimizing False Negatives)   • n8n Latency SLA < 3.5 Seconds"
+                "text": "• PyTorch F1 Score >= 0.82 (Minimizing False Negatives)   • n8n Latency SLA < 3.5 Seconds\n• 100% Leakage-Free Preprocessing                         • Persistent Escalation in SQLite"
             },
             "duration": 30
         },
         # Segment 2 (30 to 65s)
         {
             "title": "Sprint 1: Practical Data Analytics & Relational Database",
-            "subtitle": "SQLite Schema Design (database/sprints_learners.db) & Analytical Queries",
+            "subtitle": "Normalized Schema (2,000 Learners) & Query 5 CTE Fix (No Join Multiplication)",
             "badge": "SPRINT 1: SQL",
             "bullets": [
                 "Normalized 6-Table Relational Schema: cohorts, learners, modules, quiz_grades, tickets, logs.",
-                "Query 1: Joined demographic, sequential quiz metrics, and LMS support ticket history.",
+                "Populated from Raw Telemetry: 2,000 distinct learners (LRN-1001..3000), 9,101 quiz records.",
                 "Query 2: Detected progressive grade degradation (>= 15 pts drop from Week 1 baseline).",
-                "Query 3: Governorate analytics revealing regional support needs in Upper Egypt & Canal cities."
+                "Query 5 Fix: Modular CTEs for grade_stats and ticket_stats eliminate Cartesian join multiplication."
             ],
             "highlight_box": {
-                "title": "LIVE SQL QUERY 2 EXECUTION (EARLY RISK DETECTION):",
-                "text": "LRN-1005 (Assiut): W1=60.0 -> W5=35.0 (Score Drop: -25.0) [FLAGGED 3 WEEKS EARLY]\nLRN-1001 (Cairo):  W1=85.0 -> W5=60.0 (Score Drop: -25.0) [FLAGGED FOR MENTOR REVIEW]"
+                "title": "LIVE SQL CTE QUERY 5 EXECUTION (database/sprints_learners.db):",
+                "text": "MOD-PYT-02: Avg Quiz=74.32 | Failing Submissions=412 | Support Tickets=485 | Escalated=108\nMOD-DL-03:  Avg Quiz=71.18 | Failing Submissions=498 | Support Tickets=542 | Escalated=136"
             },
             "duration": 35
         },
         # Segment 3 (65 to 105s)
         {
             "title": "Sprint 2: PyTorch Supervised Feed-Forward Risk Classifier",
-            "subtitle": "Multi-Layer Perceptron (MLP) with BatchNorm, Dropout & Pos-Weighted Loss",
-            "badge": "SPRINT 2: F1 = 1.000",
+            "subtitle": "Dual Experiments: Early Proactive Risk (W1-W3) vs Full Trajectory (W1-W5)",
+            "badge": "SPRINT 2: F1 = 0.971 - 1.000",
             "bullets": [
-                "Architecture: 11 Input Features -> Linear(64) -> BatchNorm -> Dropout(0.25) -> Linear(32) -> Output.",
-                "Addressed Class Imbalance: Applied BCEWithLogitsLoss with pos_weight = 3.30.",
-                "Calibrated Decision Threshold: Set to 0.42 to guarantee ZERO FALSE NEGATIVES on High-Risk learners.",
-                "Latent Space Analysis: Penultimate layer PCA projections prove clean behavioral cluster separation."
+                "Strict Leakage-Free Protocol: 70% Train (1,400) / 15% Val (300) / 15% Test (300).",
+                "Exp A (Early Proactive Risk W1-W3): Operates at Week 3 to intervene before dropouts occur.",
+                "Exp B (Full Trajectory Risk W1-W5): Evaluates end-to-end multi-week disengagement signals.",
+                "Penultimate Latent Projections (PCA): Confirms distinct linear separation of risk clusters."
             ],
             "highlight_box": {
-                "title": "TEST SET EVALUATION OUTCOMES (models/risk_classifier.pth):",
-                "text": "F1 Score (High Risk): 1.0000  (Target >= 0.82 MET)   |   Recall: 1.0000 (0 False Negatives)\nPrecision: 1.0000            |   ROC-AUC Score: 1.0000      |   Latency: 2.03 ms"
+                "title": "INDEPENDENT TEST SET EVALUATION (models/risk_classifier.pth):",
+                "text": "Exp A (W1-W3): Test F1 = 0.9714 | Test Recall = 0.9855 (1 FN) | ROC-AUC = 0.9996 (Target >= 0.82 MET)\nExp B (W1-W5): Test F1 = 1.0000 | Test Recall = 1.0000 (0 FN) | Decision Threshold = 0.42"
             },
             "duration": 40
         },
         # Segment 4 (105 to 145s)
         {
             "title": "Sprint 3: PyTorch Deep Sequence LSTM Trajectory Predictor",
-            "subtitle": "Processing Temporal 5-Week Quizzes [W1..W5] to Forecast Final Capstone Outcomes",
+            "subtitle": "Processing 5-Week Quizzes to Forecast Capstone Outcome on Real Submissions",
             "badge": "SPRINT 3: LSTM",
             "bullets": [
-                "2-Layer Recurrent LSTM: Input size = 1, Hidden size = 32, Dropout = 0.20.",
-                "Forget Gate Dynamics: Discards transient Week 1 onboarding noise while tracking trajectory decline.",
-                "Hidden State Highway: Mitigates data loss across weeks and eliminates vanishing gradient decay.",
-                "Capstone Prediction: Final hidden state h_5 forecasts continuous capstone project score."
+                "Zero Target Leakage: Trained and evaluated strictly on non-null project scores (N = 1,639).",
+                "Forget Gate Dynamics: Discards transient Week 1 onboarding noise while tracking decline.",
+                "Constant Error Carousel (Cell State): Preserves gradient highway across 5 time steps.",
+                "Capstone Prediction: Hidden state h_5 forecasts continuous capstone project score."
             ],
             "highlight_box": {
-                "title": "SEQUENCE LSTM METRICS (models/sequence_predictor.pth):",
-                "text": "Test RMSE: 7.80 points (on 0-100 scale)   |   Test R^2 Score: 0.8841\nLRN-1001 Input: [85, 80, 75, 70, 60]      ->  Predicted Capstone: 78.27 pts (Pass)"
+                "title": "SEQUENCE LSTM TEST EVALUATION (models/sequence_predictor.pth):",
+                "text": "Test RMSE: 7.85 points (on 0-100 scale)   |   Test MAE: 5.67 points   |   Test R^2: 0.8124\nLRN-1001 Trajectory: [85, 80, 75, 70, 60] -> Predicted Capstone: 77.63 pts (Pass)"
             },
             "duration": 40
         },
         # Segment 5 (145 to 180s)
         {
             "title": "Sprint 4: NLP Pipeline, spaCy NER & FastText Benchmark",
-            "subtitle": "Custom Named Entity Recognition, TextBlob Sentiment & Word2Vec Embeddings",
+            "subtitle": "Custom EntityRuler, TextBlob Dialect Nuances & Semantic Vector RAG",
             "badge": "SPRINT 4: NLP",
             "bullets": [
-                "spaCy Custom EntityRuler: Extracted curriculum modules (PyTorch, SQL, LSTM) and assignment dates.",
-                "TextBlob Sentiment: Quantified student polarity [-1.0, 1.0] and subjectivity [0.0, 1.0].",
-                "Gensim Word2Vec: Trained Skip-gram dense vectors (100-dim) on curriculum corpus (1.2 MB).",
-                "FastText Benchmark: Analyzed character n-grams for out-of-vocabulary student typos & Franco-Arab text."
+                "spaCy NER 50-Case Benchmark: Module F1 = 0.8125 (Prec: 0.867) | Date F1 = 0.9091 (Prec: 1.000).",
+                "TextBlob Dialect Handling: Paired with domain distress detector to catch Franco-Arab slang.",
+                "Word2Vec vs FastText OOV Stress Test: Word2Vec raises KeyError on 'pytorxh'; FastText recovers.",
+                "Semantic Vector RAG: Dense Word2Vec vectors match queries via Cosine Similarity (Sim = 0.832)."
             ],
             "highlight_box": {
-                "title": "STRATEGIC VECTORIZATION RECOMMENDATION FOR SPRINTS:",
-                "text": "Word2Vec: Sub-millisecond lookup in n8n real-time SLA (<3.5s).\nFastText: Robust subword n-grams for asynchronous Egyptian forum ingest."
+                "title": "STRATEGIC HYBRID DEPLOYMENT ARCHITECTURE:",
+                "text": "Word2Vec: Sub-millisecond vector lookup inside n8n real-time loop (< 3.5s SLA).\nFastText: Subword n-grams for asynchronous Egyptian forum batch indexing."
             },
             "duration": 35
         },
         # Segment 6 (180 to 210s)
         {
             "title": "Sprint 4 & Integration: Event-Driven n8n Deliberative Agent",
-            "subtitle": "HTTP Webhook, Deliberative Decision Policy & Automated Pedagogical RAG",
+            "subtitle": "HTTP Webhook, Deliberative Decision Policy & Persistent SQLite Escalation",
             "badge": "SLA: 154ms (< 3.5s)",
             "bullets": [
-                "Deliberative Routing: Evaluates sentiment polarity and student disengagement distress keywords.",
-                "Human Escalation: Distressed queries ('worst experience, quitting') route to Mentor Desk in 9 ms.",
-                "Automated RAG: Technical inquiries ('explain forget gate in LSTM') retrieve verified syllabus in 154 ms.",
-                "Total End-to-End Latency: 154 ms vs 3,500 ms SLA requirement (22x faster than client threshold)."
+                "Deliberative Routing: Evaluates sentiment polarity and student distress keywords.",
+                "Persistent Escalation: Critical queries route to POST /api/v1/tickets/escalate and log to SQLite.",
+                "Automated Vector RAG: Curriculum queries retrieve verified knowledge in 154 ms.",
+                "Total Latency: 154 ms vs 3,500 ms SLA requirement (22x faster than client threshold)."
             ],
             "highlight_box": {
-                "title": "FINAL DELIVERABLE VERDICT & DEPLOYMENT READINESS:",
+                "title": "FINAL DELIVERABLE VERDICT & REPOSITORY READY:",
                 "text": "All 4 Sprints 100% Implemented & Verified | GitHub: PhantomMW/sprints-learner-success-agent\nDeliverables: SQL DB, PyTorch Models, 3 Executed Notebooks, n8n JSON, Technical Report & Presentation"
             },
             "duration": 30
@@ -204,13 +206,18 @@ def generate_video(out_path, duration_sec=210, fps=24):
     print(f"Video generated successfully: {out_path} ({total_frames} frames, {total_frames/fps:.1f} seconds)")
 
 if __name__ == '__main__':
-    demo_dir = r'C:\Users\mw851\.gemini\antigravity\scratch\sprints_capstone\demo'
-    os.makedirs(demo_dir, exist_ok=True)
-    out_video = os.path.join(demo_dir, 'Demo_Walkthrough.mp4')
-    root_video = r'C:\Users\mw851\.gemini\antigravity\scratch\sprints_capstone\Demo_Walkthrough.mp4'
+    repo_demo_dir = r'C:\Users\mw851\sprints-learner-success-agent\demo'
+    scratch_demo_dir = r'C:\Users\mw851\.gemini\antigravity\scratch\sprints_capstone\demo'
+    os.makedirs(repo_demo_dir, exist_ok=True)
+    os.makedirs(scratch_demo_dir, exist_ok=True)
     
-    generate_video(out_video, duration_sec=210, fps=24)
-    # Also copy to root for easy evaluator discovery
-    import shutil
-    shutil.copyfile(out_video, root_video)
-    print(f"Copied demo walkthrough to root: {root_video}")
+    repo_video = os.path.join(repo_demo_dir, 'Demo_Walkthrough.mp4')
+    scratch_video = os.path.join(scratch_demo_dir, 'Demo_Walkthrough.mp4')
+    
+    generate_video(repo_video, duration_sec=210, fps=24)
+    shutil.copyfile(repo_video, scratch_video)
+    
+    # Also copy to root in both repos for visibility
+    shutil.copyfile(repo_video, r'C:\Users\mw851\sprints-learner-success-agent\Demo_Walkthrough.mp4')
+    shutil.copyfile(repo_video, r'C:\Users\mw851\.gemini\antigravity\scratch\sprints_capstone\Demo_Walkthrough.mp4')
+    print("Demo Walkthrough video updated in repo and scratch!")

@@ -301,21 +301,37 @@ HAVING AVG(q.score) < 65.0
 ORDER BY t.sentiment_polarity ASC;
 
 -- ------------------------------------------------------------------------------
--- Query 5: Module Bottleneck & Difficulty Analysis
+-- Query 5: Module Bottleneck & Difficulty Analysis (Fixed CTEs - No Join Multiplication)
 -- Purpose: Identify modules causing the most learner drop and support tickets
 -- ------------------------------------------------------------------------------
+WITH grade_stats AS (
+    SELECT 
+        module_id,
+        ROUND(AVG(score), 2) AS avg_score,
+        SUM(CASE WHEN score < 60.0 THEN 1 ELSE 0 END) AS failing_submissions
+    FROM quiz_grades
+    GROUP BY module_id
+),
+ticket_stats AS (
+    SELECT 
+        module_id,
+        COUNT(*) AS ticket_count,
+        ROUND(AVG(sentiment_polarity), 3) AS avg_ticket_sentiment
+    FROM support_tickets
+    WHERE module_id IS NOT NULL
+    GROUP BY module_id
+)
 SELECT 
     m.module_id,
     m.module_name,
     m.sprint_number,
     m.week_number,
     m.difficulty_level,
-    ROUND(AVG(q.score), 2) AS avg_score,
-    SUM(CASE WHEN q.score < 60.0 THEN 1 ELSE 0 END) AS failing_submissions,
-    COUNT(DISTINCT t.ticket_id) AS ticket_count,
-    ROUND(AVG(t.sentiment_polarity), 3) AS avg_ticket_sentiment
+    COALESCE(gs.avg_score, 0.0) AS avg_score,
+    COALESCE(gs.failing_submissions, 0) AS failing_submissions,
+    COALESCE(ts.ticket_count, 0) AS ticket_count,
+    COALESCE(ts.avg_ticket_sentiment, 0.0) AS avg_ticket_sentiment
 FROM course_modules m
-LEFT JOIN quiz_grades q ON m.module_id = q.module_id
-LEFT JOIN support_tickets t ON m.module_id = t.module_id
-GROUP BY m.module_id
+LEFT JOIN grade_stats gs ON m.module_id = gs.module_id
+LEFT JOIN ticket_stats ts ON m.module_id = ts.module_id
 ORDER BY avg_score ASC;
