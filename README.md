@@ -14,6 +14,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 <br/>
 [![Release](https://img.shields.io/badge/Release-v1.0.0-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.0.0)
+[![CI Pipeline](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml)
 [![F1-Score](https://img.shields.io/badge/F1_Score-1.0000_(Target_%E2%89%A5_0.82)-success?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
 [![Latency SLA](https://img.shields.io/badge/Latency-154ms_(SLA_%3C_3.5s)-blueviolet?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
 [![Zero False Negatives](https://img.shields.io/badge/False_Negatives-0_(Recall_1.00)-brightgreen?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
@@ -265,7 +266,10 @@ node tests/test_n8n_workflow_engine.js
 
 ### 6. Launch via Docker Compose (n8n + API)
 ```bash
-docker-compose up --build -d
+docker compose up --build -d
+
+# Verify live n8n orchestrator integration & SQLite webhook persistence
+python tests/test_n8n_docker_integration.py
 ```
 * Access **n8n Web UI** at: `http://localhost:5678`
 * Import workflow from `n8n_workflows/learner_success_agent.json`

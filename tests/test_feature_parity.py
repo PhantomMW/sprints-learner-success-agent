@@ -10,7 +10,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from scripts.train_pytorch import extract_single_learner_features
+from scripts.train_pytorch import extract_single_learner_features, transform_learner_dataframe
 
 class TestFeatureParity(unittest.TestCase):
     @classmethod
@@ -34,7 +34,7 @@ class TestFeatureParity(unittest.TestCase):
         ]
 
     def _compute_df_features(self, city, quizzes):
-        """Replicates exact training pipeline DataFrame transformation from train_pytorch.py"""
+        """Uses the exact training pipeline DataFrame transformation function from train_pytorch.py"""
         df_row = pd.DataFrame([{
             'cohort_city': city,
             'week_1_quiz': quizzes[0],
@@ -44,32 +44,11 @@ class TestFeatureParity(unittest.TestCase):
             'week_5_quiz': quizzes[4],
         }])
 
-        # Missing indicator counts (computed before imputation)
-        df_row['missing_quiz_count'] = df_row[self.quiz_cols].isna().sum(axis=1)
-        df_row['early_missing_count'] = df_row[self.w13_cols].isna().sum(axis=1)
+        # Invoke the exact shared training transformation function without rewriting logic
+        transformed_df = transform_learner_dataframe(df_row, self.city_medians, self.global_medians)
 
-        # Impute using city medians or global medians
-        for col in self.quiz_cols:
-            city_val = self.city_medians.get(city, {}).get(col, self.global_medians.get(col, 50.0))
-            df_row[col] = df_row[col].fillna(city_val)
-
-        # Causal forward fill along temporal axis
-        df_row[self.quiz_cols] = df_row[self.quiz_cols].ffill(axis=1).fillna(50.0)
-
-        # Early feature engineering
-        df_row['score_delta_w1_w3'] = df_row['week_1_quiz'] - df_row['week_3_quiz']
-        df_row['early_mean'] = df_row[self.w13_cols].mean(axis=1)
-        df_row['early_min'] = df_row[self.w13_cols].min(axis=1)
-
-        # Full feature engineering
-        df_row['score_delta_w1_w5'] = df_row['week_1_quiz'] - df_row['week_5_quiz']
-        df_row['quiz_mean'] = df_row[self.quiz_cols].mean(axis=1)
-        df_row['quiz_std'] = df_row[self.quiz_cols].std(axis=1).fillna(0.0)
-        df_row['quiz_min'] = df_row[self.quiz_cols].min(axis=1)
-        df_row['recent_performance_ratio'] = df_row['week_5_quiz'] / (df_row['week_1_quiz'] + 1e-5)
-
-        early_feats = df_row[self.early_feature_cols].values.astype(np.float32)
-        full_feats = df_row[self.full_feature_cols].values.astype(np.float32)
+        early_feats = transformed_df[self.early_feature_cols].values.astype(np.float32)
+        full_feats = transformed_df[self.full_feature_cols].values.astype(np.float32)
         return early_feats, full_feats
 
     def _assert_parity(self, city, quizzes, case_name):

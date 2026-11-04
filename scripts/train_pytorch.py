@@ -20,6 +20,7 @@ import copy
 import argparse
 import numpy as np
 import pandas as pd
+pd.set_option('future.no_silent_downcasting', True)
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -91,38 +92,61 @@ def load_and_split_data(csv_path: str, random_state: int = 42):
     city_medians_train = train_df.groupby('cohort_city')[quiz_cols].median()
     global_medians_train = train_df[quiz_cols].median()
     
-    for split_df in [train_df, val_df, test_df]:
-        for col in quiz_cols:
-            city_col_map = city_medians_train[col].to_dict()
-            imputed_city = split_df['cohort_city'].map(city_col_map).fillna(global_medians_train[col])
-            split_df[col] = split_df[col].fillna(imputed_city)
-            
-        # Forward fill along temporal axis to carry forward demonstrated competence (strictly causal, no bfill future leakage)
-        split_df[quiz_cols] = split_df[quiz_cols].ffill(axis=1).fillna(50.0)
-        
-        # Feature Engineering:
-        # Full trajectory features
-        split_df['score_delta_w1_w5'] = split_df['week_1_quiz'] - split_df['week_5_quiz']
-        split_df['quiz_mean'] = split_df[quiz_cols].mean(axis=1)
-        split_df['quiz_std'] = split_df[quiz_cols].std(axis=1).fillna(0.0)
-        split_df['quiz_min'] = split_df[quiz_cols].min(axis=1)
-        split_df['recent_performance_ratio'] = split_df['week_5_quiz'] / (split_df['week_1_quiz'] + 1e-5)
-        
-        # Early risk features (Weeks 1-3 only)
-        w13_cols = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz']
-        split_df['score_delta_w1_w3'] = split_df['week_1_quiz'] - split_df['week_3_quiz']
-        split_df['early_mean'] = split_df[w13_cols].mean(axis=1)
-        split_df['early_min'] = split_df[w13_cols].min(axis=1)
-        split_df['early_performance_ratio'] = split_df['week_3_quiz'] / (split_df['week_1_quiz'] + 1e-5)
-        
     city_medians_dict = {
         city: {col: float(val) for col, val in row.items()}
         for city, row in city_medians_train.iterrows()
     }
     global_medians_dict = {col: float(val) for col, val in global_medians_train.items()}
+    
+    train_df = transform_learner_dataframe(train_df, city_medians_dict, global_medians_dict)
+    val_df = transform_learner_dataframe(val_df, city_medians_dict, global_medians_dict)
+    test_df = transform_learner_dataframe(test_df, city_medians_dict, global_medians_dict)
 
     print("Leak-free preprocessing complete. Training statistics strictly isolated.")
     return train_df, val_df, test_df, city_medians_dict, global_medians_dict
+
+def transform_learner_dataframe(
+    df: pd.DataFrame,
+    city_medians: dict,
+    global_medians: dict
+) -> pd.DataFrame:
+    """
+    Standardized, leak-free DataFrame transformation function shared across training and unit tests.
+    Applies training-set city/global median imputation, causal forward fill, and feature engineering.
+    """
+    df = df.copy()
+    quiz_cols = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'week_4_quiz', 'week_5_quiz']
+    w13_cols = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz']
+    
+    # Missing indicator features (known at runtime, computed strictly before imputation)
+    if 'missing_quiz_count' not in df.columns:
+        df['missing_quiz_count'] = df[quiz_cols].isna().sum(axis=1)
+    if 'early_missing_count' not in df.columns:
+        df['early_missing_count'] = df[w13_cols].isna().sum(axis=1)
+        
+    for col in quiz_cols:
+        city_col_map = {city: vals.get(col, global_medians.get(col, 50.0)) for city, vals in city_medians.items()}
+        imputed_city = df['cohort_city'].map(city_col_map).fillna(global_medians.get(col, 50.0))
+        df[col] = df[col].fillna(imputed_city)
+        
+    # Forward fill along temporal axis to carry forward demonstrated competence (strictly causal, no bfill future leakage)
+    df[quiz_cols] = df[quiz_cols].ffill(axis=1).fillna(50.0)
+    
+    # Feature Engineering:
+    # Full trajectory features
+    df['score_delta_w1_w5'] = df['week_1_quiz'] - df['week_5_quiz']
+    df['quiz_mean'] = df[quiz_cols].mean(axis=1)
+    df['quiz_std'] = df[quiz_cols].std(axis=1).fillna(0.0)
+    df['quiz_min'] = df[quiz_cols].min(axis=1)
+    df['recent_performance_ratio'] = df['week_5_quiz'] / (df['week_1_quiz'] + 1e-5)
+    
+    # Early risk features (Weeks 1-3 only)
+    df['score_delta_w1_w3'] = df['week_1_quiz'] - df['week_3_quiz']
+    df['early_mean'] = df[w13_cols].mean(axis=1)
+    df['early_min'] = df[w13_cols].min(axis=1)
+    df['early_performance_ratio'] = df['week_3_quiz'] / (df['week_1_quiz'] + 1e-5)
+    
+    return df
 
 def extract_single_learner_features(
     raw_quizzes: list,
