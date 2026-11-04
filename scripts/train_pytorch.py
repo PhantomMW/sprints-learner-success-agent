@@ -16,6 +16,7 @@ Description: End-to-end PyTorch modeling pipeline for Sprint 2 and Sprint 3.
 """
 
 import os
+import copy
 import argparse
 import numpy as np
 import pandas as pd
@@ -96,8 +97,8 @@ def load_and_split_data(csv_path: str, random_state: int = 42):
             imputed_city = split_df['cohort_city'].map(city_col_map).fillna(global_medians_train[col])
             split_df[col] = split_df[col].fillna(imputed_city)
             
-        # Forward fill along temporal axis to carry forward demonstrated competence
-        split_df[quiz_cols] = split_df[quiz_cols].ffill(axis=1).bfill(axis=1).fillna(50.0)
+        # Forward fill along temporal axis to carry forward demonstrated competence (strictly causal, no bfill future leakage)
+        split_df[quiz_cols] = split_df[quiz_cols].ffill(axis=1).fillna(50.0)
         
         # Feature Engineering:
         # Full trajectory features
@@ -226,6 +227,10 @@ def train_risk_model(train_df, val_df, test_df, feature_cols, exp_name, epochs=6
     print(f"\n--- Training {exp_name} ({len(feature_cols)} Features) ---")
     print(f"Features: {feature_cols}")
     
+    assert len(train_df) > 0, "Train dataset must not be empty"
+    assert len(val_df) > 0, "Validation dataset must not be empty"
+    assert len(test_df) > 0, "Test dataset must not be empty"
+
     X_train = train_df[feature_cols].values
     y_train = train_df['dropped_out'].values
     
@@ -234,6 +239,9 @@ def train_risk_model(train_df, val_df, test_df, feature_cols, exp_name, epochs=6
     
     X_test = test_df[feature_cols].values
     y_test = test_df['dropped_out'].values
+    
+    assert len(y_val) > 0, "Validation targets must not be empty"
+    assert len(y_test) > 0, "Test targets must not be empty"
     
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -291,7 +299,7 @@ def train_risk_model(train_df, val_df, test_df, feature_cols, exp_name, epochs=6
         if best_t_f1 > best_val_f1:
             best_val_f1 = best_t_f1
             best_threshold = best_t
-            best_state = model.state_dict().copy()
+            best_state = copy.deepcopy(model.state_dict())
             
     # Load best validation model
     model.load_state_dict(best_state)
@@ -354,6 +362,9 @@ def train_sequence_lstm(train_df, val_df, test_df, epochs=50, batch_size=32):
     
     print(f"Learners with confirmed capstone project submissions:")
     print(f"  Train: {len(tr_clean)}, Val: {len(va_clean)}, Test: {len(te_clean)}")
+    assert len(tr_clean) > 0, "Train clean subset must not be empty"
+    assert len(va_clean) > 0, "Validation clean subset must not be empty"
+    assert len(te_clean) > 0, "Test clean subset must not be empty"
     
     # Scale sequences and targets to [0, 1]
     X_train = tr_clean[seq_cols].values / 100.0
@@ -395,7 +406,7 @@ def train_sequence_lstm(train_df, val_df, test_df, epochs=50, batch_size=32):
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            best_lstm_state = model.state_dict().copy()
+            best_lstm_state = copy.deepcopy(model.state_dict())
             
     # Load best validation model
     model.load_state_dict(best_lstm_state)
@@ -437,8 +448,10 @@ def train_sequence_lstm(train_df, val_df, test_df, epochs=50, batch_size=32):
 
 def main():
     parser = argparse.ArgumentParser(description="Train Sprints Leak-Free PyTorch Models")
-    parser.add_argument('--base_dir', type=str, default=r'C:\Users\mw851\sprints-learner-success-agent')
-    parser.add_argument('--epochs', type=int, default=60)
+    default_base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    parser.add_argument('--base_dir', type=str, default=default_base, help="Project root directory")
+    parser.add_argument('--epochs', type=int, default=60, help="Number of training epochs")
+    parser.add_argument('--batch_size', type=int, default=32, help="DataLoader batch size")
     args = parser.parse_args()
     
     set_seed(42)
@@ -453,11 +466,11 @@ def main():
     
     # 2. Experiment A: Proactive Early Risk Classifier (Weeks 1 to 3)
     early_features = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'score_delta_w1_w3', 'early_mean', 'early_min', 'early_missing_count']
-    exp_a = train_risk_model(train_df, val_df, test_df, early_features, "Experiment A: Proactive Early Risk (Weeks 1-3)", epochs=args.epochs)
+    exp_a = train_risk_model(train_df, val_df, test_df, early_features, "Experiment A: Proactive Early Risk (Weeks 1-3)", epochs=args.epochs, batch_size=args.batch_size)
     
     # 3. Experiment B: Full Trajectory Risk Classifier (Weeks 1 to 5)
     full_features = ['week_1_quiz', 'week_2_quiz', 'week_3_quiz', 'week_4_quiz', 'week_5_quiz', 'score_delta_w1_w5', 'quiz_mean', 'quiz_std', 'quiz_min', 'recent_performance_ratio', 'missing_quiz_count']
-    exp_b = train_risk_model(train_df, val_df, test_df, full_features, "Experiment B: Full Trajectory Risk (Weeks 1-5)", epochs=args.epochs)
+    exp_b = train_risk_model(train_df, val_df, test_df, full_features, "Experiment B: Full Trajectory Risk (Weeks 1-5)", epochs=args.epochs, batch_size=args.batch_size)
     
     # 4. Save Sprint 2 Checkpoint (Holding both models)
     risk_checkpoint_path = os.path.join(models_dir, 'risk_classifier.pth')
@@ -480,7 +493,7 @@ def main():
     print(f"\nSaved dual risk classifier checkpoint: {risk_checkpoint_path}")
     
     # 5. Sprint 3: LSTM Sequence Predictor
-    lstm_results = train_sequence_lstm(train_df, val_df, test_df, epochs=50)
+    lstm_results = train_sequence_lstm(train_df, val_df, test_df, epochs=50, batch_size=args.batch_size)
     lstm_checkpoint_path = os.path.join(models_dir, 'sequence_predictor.pth')
     torch.save({
         'model_state_dict': lstm_results['model'].state_dict(),

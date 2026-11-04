@@ -238,7 +238,7 @@ def create_slide_deck(filename):
         Paragraph("&bull; <b>Zero Target Leakage:</b> Clean 70/15/15 split. Imputation and scaler fitted strictly on Training set.", card_bullet),
         Paragraph("&bull; <b>Experiment A (Early Risk W1-W3):</b> <b>Test F1 = 0.9714</b> | <b>Recall = 0.9855</b> (1 missed) | <b>ROC-AUC = 0.9996</b>. Enables proactive intervention at Week 3!", card_bullet),
         Paragraph("&bull; <b>Experiment B (Full Trajectory W1-W5):</b> <b>Test F1 = 1.0000</b> | <b>Recall = 1.0000</b> (0 False Negatives).", card_bullet),
-        Paragraph("&bull; <b>Loss & Threshold:</b> <code>pos_weight=3.30</code> heavily penalizes False Negatives; decision threshold calibrated to <b>0.42</b>.", card_bullet)
+        Paragraph("&bull; <b>Loss & Threshold:</b> <code>pos_weight=3.30</code> heavily penalizes False Negatives; decision threshold calibrated to <b>0.35</b>.", card_bullet)
     ]
     if os.path.exists(cm_path):
         img_mlp = Image(cm_path, width=280, height=200)
@@ -280,7 +280,7 @@ def create_slide_deck(filename):
         Paragraph("&bull; <b>Trained Strictly on Non-Nulls:</b> Filtered to $N=1,639$ real project submissions (zero synthetic label leakage).", card_bullet),
         Paragraph("&bull; <b>Forget Gate ($f_t$):</b> Dampens early onboarding noise (e.g. Week 1 environment setup issues).", card_bullet),
         Paragraph("&bull; <b>Cell State ($C_t$):</b> Additive Constant Error Carousel highway enabling gradient flow across timesteps without decay.", card_bullet),
-        Paragraph("&bull; <b>Test Metrics:</b> <b>RMSE = 7.85 pts</b> | <b>MAE = 5.67 pts</b> | <b>R² = 0.8124</b>.", card_bullet)
+        Paragraph("&bull; <b>Test Metrics:</b> <b>RMSE = 7.63 pts</b> | <b>MAE = 5.59 pts</b> | <b>R² = 0.8229</b>.", card_bullet)
     ]
     if os.path.exists(lstm_img_p):
         img_lstm = Image(lstm_img_p, width=330, height=195)

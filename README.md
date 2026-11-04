@@ -40,7 +40,7 @@ As **Sprints** rapidly scales its intensive technology bootcamps across Egypt an
 To solve this, Sprints leadership commissioned the development of an **end-to-end automated Learner Success Agent**. This system bridges relational analytics, supervised deep learning, temporal sequence modeling, and an event-driven agentic RAG workflow:
 * **Sprint 1 (Practical Data Analytics):** Normalized 6-table SQLite database (`database/sprints_learners.db`) with analytical queries to extract interaction logs and detect progressive grade degradation ($\ge 15$ pts).
 * **Sprint 2 (Intro to Machine Learning):** PyTorch Supervised Feed-Forward Neural Network (`models/risk_classifier.pth`) classifying learners as **High Risk** vs **Low Risk**, achieving **F1 = 1.000** and **0 False Negatives** (exceeding the $\ge 0.82$ target).
-* **Sprint 3 (Deep Learning):** PyTorch 2-layer LSTM Sequence Model (`models/sequence_predictor.pth`) processing 5-week quiz trajectories $[q_1..q_5]$ to forecast final capstone project outcomes ($R^2 = 0.8841$, RMSE = $7.80$ pts), leveraging its **forget gate** to discard early-week noise and eliminate vanishing gradients.
+* **Sprint 3 (Deep Learning):** PyTorch 2-layer LSTM Sequence Model (`models/sequence_predictor.pth`) processing 5-week quiz trajectories $[q_1..q_5]$ to forecast final capstone project outcomes ($R^2 = 0.8229$, RMSE = $7.63$ pts, MAE = $5.59$ pts), leveraging its **forget gate** to discard early-week noise and eliminate vanishing gradients.
 * **Sprint 4 (NLP & Generative AI):** Custom spaCy Named Entity Recognition (NER), TextBlob sentiment analysis, Gensim Word2Vec dense embeddings (`data/processed_embeddings.bin`), and a conceptual FastText n-grams benchmark.
 * **Orchestration (n8n & FastAPI):** Event-driven n8n workflow (`n8n_workflows/learner_success_agent.json`) executing a Deliberative Agent routing policy (escalating distressed queries to human mentors within **9 ms** and answering curriculum queries via RAG in **154 ms**, strictly meeting the $< 3.5$s SLA).
 
@@ -58,7 +58,7 @@ flowchart TD
 
     subgraph Modeling Layer [2. Predictive PyTorch Core]
         IMP --> FFNN["PyTorch Risk Classifier (MLP)\n(models/risk_classifier.pth)\nF1 = 1.000 | Recall = 1.000"]
-        IMP --> LSTM["PyTorch Sequence LSTM\n(models/sequence_predictor.pth)\nR² = 0.8841 | Forget Gate Dynamics"]
+        IMP --> LSTM["PyTorch Sequence LSTM\n(models/sequence_predictor.pth)\nR² = 0.8229 | Forget Gate Dynamics"]
         FFNN --> PCA_PROJ["Latent Space PCA Projection\n(Behavioral Cluster Validation)"]
     end
 
@@ -150,7 +150,7 @@ erDiagram
 | **Model F1 Score (Exp A: W1-W3 Proactive)** | $\ge 0.82$ on Test Set | **0.9714 (Recall: 0.9855, ROC-AUC: 0.9996)** | 🟢 **PASSED (EARLY RISK INTERVENTION)** |
 | **Model F1 Score (Exp B: W1-W5 Full)** | $\ge 0.82$ on Test Set | **1.0000 (Recall: 1.0000, 0 False Negatives)** | 🟢 **OPTIMAL SAFETY NET** |
 | **Workflow Latency** | $< 3.5$ seconds (3,500 ms) | **154.5 ms (Max: 296 ms)** | 🟢 **22x FASTER THAN SLA** |
-| **Sequence Modeling (No Target Leakage)** | LSTM on real submissions ($N=1,639$) | **$R^2 = 0.8124$, RMSE = 7.85 pts, MAE = 5.67** | 🟢 **PASSED** |
+| **Sequence Modeling (No Target Leakage)** | LSTM on real submissions ($N=1,639$) | **$R^2 = 0.8229$, RMSE = 7.63 pts, MAE = 5.59** | 🟢 **PASSED** |
 | **spaCy NER Benchmark (50 Samples)** | Module & Date Extraction | **Module F1: 0.8125 \| Date F1: 0.9091** | 🟢 **PASSED** |
 | **Word2Vec vs FastText OOV Test** | Empirical Benchmark | Tested: Word2Vec KeyError on typos vs FastText n-grams | 🟢 **PASSED** |
 | **Semantic Vector RAG** | Dense Vector Retrieval | Cosine similarity ranking over syllabus vectors | 🟢 **PASSED** |
@@ -174,7 +174,7 @@ sprints_capstone/
 │   └── sprints_learners.db            # SQLite relational database (2,000 learners, 9,101 quizzes)
 ├── models/
 │   ├── risk_classifier.pth            # Supervised PyTorch Risk MLP (Exp A F1=0.9714 / Exp B F1=1.000)
-│   ├── sequence_predictor.pth         # PyTorch Sequence LSTM (R²=0.8124, RMSE=7.85 pts)
+│   ├── sequence_predictor.pth         # PyTorch Sequence LSTM (R²=0.8229, RMSE=7.63 pts)
 │   └── word2vec.model                 # Trained Gensim curriculum Word2Vec model
 ├── notebooks/
 │   ├── 01_eda_and_sql_sprint1.ipynb   # Executed EDA, SQL Query 5 CTE, & governorate charts
@@ -273,7 +273,7 @@ docker-compose up --build -d
 A major pitfall of standard RNNs on multi-week academic trajectories is the **exponential decay of backpropagated gradients**. When modeling a 5-week sequence $[q_1, q_2, q_3, q_4, q_5]$, an isolated bad week (e.g. sickness or local power outages in Week 1) could either dominate or vanish in traditional architectures.
 * **The Forget Gate ($f_t$):** Evaluates $f_t = \sigma(W_f \cdot [h_{t-1}, x_t] + b_f)$. For temporary noise in early weeks, $f_t$ selectively dampens transient errors while maintaining cumulative mastery.
 * **Additive Constant Error Carousel ($C_t$):** The update rule $C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t$ provides a linear shortcut for gradient propagation, entirely circumventing vanishing gradients.
-* **Hidden State ($h_t$):** Filtered through $o_t \odot \tanh(C_t)$, the final hidden state $h_5$ encodes an accurate, noise-filtered representation of student velocity used to forecast capstone outcomes ($R^2 = 0.8841$).
+* **Hidden State ($h_t$):** Filtered through $o_t \odot \tanh(C_t)$, the final hidden state $h_5$ encodes an accurate, noise-filtered representation of student velocity used to forecast capstone outcomes ($R^2 = 0.8229$).
 
 ### 2. Validation via Latent Space Distributions
 To ensure the supervised risk classifier was not overfitting to spurious tabular artifacts, we extracted the penultimate 16-dimensional activation vectors from the MLP and projected them onto a 2D manifold via PCA. The resulting distribution demonstrates **clear geometric separation** between the High Risk cluster and the Retained Learners cluster, validating that our classification boundaries reflect true underlying behavioral dynamics.

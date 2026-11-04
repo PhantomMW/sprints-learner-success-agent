@@ -312,9 +312,9 @@ def build_pdf(filename):
     # LSTM Metrics
     lstm_metrics_data = [
         [Paragraph("Metric", table_header), Paragraph("Validation Result", table_header), Paragraph("Independent Test Result", table_header), Paragraph("Evaluation Context", table_header)],
-        [Paragraph("Root Mean Squared Error (RMSE)", table_cell), Paragraph("7.73 pts", table_cell), Paragraph("<b>7.85 pts</b>", table_cell), Paragraph("Evaluated on true project scores", table_cell)],
-        [Paragraph("Mean Absolute Error (MAE)", table_cell), Paragraph("5.62 pts", table_cell), Paragraph("<b>5.67 pts</b>", table_cell), Paragraph("Sub-6 point average prediction error", table_cell)],
-        [Paragraph("Coefficient of Determination ($R^2$)", table_cell), Paragraph("0.8160", table_cell), Paragraph("<b>0.8124</b>", table_cell), Paragraph("Explains >81% of capstone variance", table_cell)]
+        [Paragraph("Root Mean Squared Error (RMSE)", table_cell), Paragraph("7.70 pts", table_cell), Paragraph("<b>7.63 pts</b>", table_cell), Paragraph("Evaluated on true project scores (N=248)", table_cell)],
+        [Paragraph("Mean Absolute Error (MAE)", table_cell), Paragraph("5.61 pts", table_cell), Paragraph("<b>5.59 pts</b>", table_cell), Paragraph("Sub-5.6 point average prediction error", table_cell)],
+        [Paragraph("Coefficient of Determination ($R^2$)", table_cell), Paragraph("0.8195", table_cell), Paragraph("<b>0.8229</b>", table_cell), Paragraph("Explains >82% of capstone variance", table_cell)]
     ]
     t_lstm = Table(lstm_metrics_data, colWidths=[160, 110, 110, 156])
     t_lstm.setStyle(TableStyle([
@@ -330,7 +330,7 @@ def build_pdf(filename):
     lstm_img = os.path.join(docs_dir, 'lstm_sequence_predictions.png')
     if os.path.exists(lstm_img):
         story.append(Image(lstm_img, width=520, height=160))
-        story.append(Paragraph("<b>Figure 3:</b> PyTorch LSTM 5-Week Trajectory Forecasting vs Actual Capstone Project Scores ($R^2 = 0.8124$)", table_cell))
+        story.append(Paragraph("<b>Figure 3:</b> PyTorch LSTM 5-Week Trajectory Forecasting vs Actual Capstone Project Scores ($R^2 = 0.8229$)", table_cell))
         story.append(Spacer(1, 6))
         
     # -------------------------------------------------------------------------

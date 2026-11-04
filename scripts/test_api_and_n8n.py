@@ -76,7 +76,7 @@ assert data_neg["execution_latency_ms"] < 3500.0
 esc_payload = {
     "learner_id": "LRN-1019",
     "query_text": "This is the worst experience, none of the code works. Thinking of quitting.",
-    "module_id": "MOD-PYT-02",
+    "module_id": "PyTorch",  # tests module mapping to MOD-201
     "sentiment_polarity": data_neg["sentiment"]["polarity"],
     "sentiment_subjectivity": data_neg["sentiment"]["subjectivity"],
     "priority": "Critical",
@@ -87,22 +87,43 @@ print(f"\n4. Persistent Ticket Escalation Write to SQLite DB:")
 data_esc = resp_esc.json()
 print("   Status:", data_esc["status"])
 print("   Ticket ID:", data_esc["ticket_id"])
+print("   Mapped Module ID:", data_esc["module_id"])
 print("   DB Status:", data_esc["db_record_status"])
 assert resp_esc.status_code == 200
 assert data_esc["status"] == "persisted"
+assert data_esc["module_id"] == "MOD-201"
 
-# Verify in SQLite database directly
+# Verify in SQLite database directly with foreign key check
 db_path = os.path.join(project_root, 'database', 'sprints_learners.db')
 conn = sqlite3.connect(db_path)
+conn.execute("PRAGMA foreign_keys = ON;")
+assert conn.execute("PRAGMA foreign_keys;").fetchone()[0] == 1
 cur = conn.cursor()
-cur.execute("SELECT ticket_id, learner_id, status, priority, escalation_flag FROM support_tickets WHERE ticket_id = ?", (data_esc["ticket_id"],))
+cur.execute("SELECT ticket_id, learner_id, module_id, status, priority, escalation_flag FROM support_tickets WHERE ticket_id = ?", (data_esc["ticket_id"],))
 db_row = cur.fetchone()
 conn.close()
 print("   Direct DB Verification:", db_row)
 assert db_row is not None
-assert db_row[4] == 1 # escalation_flag = 1
+assert db_row[1] == "LRN-1019"
+assert db_row[2] == "MOD-201"
+assert db_row[5] == 1 # escalation_flag = 1
 
-# 5. Test PyTorch Supervised Risk Classifier (Sprint 2)
+# 4B. Test Unknown Learner Escalation Rejection (Strict 404, No Fallback to LRN-1001)
+esc_unknown = {
+    "learner_id": "LRN-UNKNOWN-9999",
+    "query_text": "Unknown learner attempting to create ticket.",
+    "module_id": "MOD-101",
+    "sentiment_polarity": -0.5,
+    "sentiment_subjectivity": 0.5,
+    "priority": "High",
+    "status": "Pending_Human_Escalation"
+}
+resp_unknown = client.post("/api/v1/tickets/escalate", json=esc_unknown)
+print("\n4B. Unknown Learner Escalation Rejection:")
+print("    Status code:", resp_unknown.status_code, "(Detail:", resp_unknown.json().get("detail"), ")")
+assert resp_unknown.status_code == 404
+
+# 5. Test PyTorch Supervised Risk Classifier (Sprint 2 - Exp B Full Trajectory)
 risk_payload_high = {
     "learner_id": "LRN-1005",
     "week_1_quiz": 60.0,
@@ -112,13 +133,32 @@ risk_payload_high = {
     "week_5_quiz": 35.0
 }
 resp_risk = client.post("/api/v1/predict_risk", json=risk_payload_high)
-print("\n5. PyTorch Supervised Risk Prediction (High Risk Profile):")
+print("\n5. PyTorch Supervised Risk Prediction (Exp B Full Trajectory):")
 data_risk = resp_risk.json()
+print("   Model Used:", data_risk["model_used"])
 print("   Risk Level:", data_risk["risk_level"])
 print("   Risk Probability:", data_risk["risk_probability"])
 print("   Decision Threshold:", data_risk["decision_threshold"])
 assert resp_risk.status_code == 200
 assert data_risk["risk_level"] == "High Risk"
+assert "Full Trajectory" in data_risk["model_used"]
+
+# 5B. Test Dedicated Early Risk Classifier (Sprint 2 - Exp A Weeks 1-3)
+early_payload = {
+    "learner_id": "LRN-1005",
+    "week_1_quiz": 58.0,
+    "week_2_quiz": 50.0,
+    "week_3_quiz": 42.0
+}
+resp_early = client.post("/api/v1/predict_risk_early", json=early_payload)
+print("\n5B. PyTorch Dedicated Early Risk Prediction (Exp A Weeks 1-3):")
+data_early = resp_early.json()
+print("   Model Used:", data_early["model_used"])
+print("   Risk Level:", data_early["risk_level"])
+print("   Risk Probability:", data_early["risk_probability"])
+print("   Score Delta W1-W3:", data_early["score_delta_w1_w3"])
+assert resp_early.status_code == 200
+assert "Early Risk" in data_early["model_used"]
 
 # 6. Test PyTorch Sequence LSTM Predictor (Sprint 3)
 seq_payload = {

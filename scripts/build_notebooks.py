@@ -324,9 +324,33 @@ threshold = ckpt.get('decision_threshold', 0.42)
 preds = (probs >= threshold).astype(int)
 
 print("\\n" + "="*50)
-print("INDEPENDENT TEST SET EVALUATION REPORT:")
+print("EXPERIMENT B (FULL TRAJECTORY WEEKS 1-5) INDEPENDENT TEST REPORT:")
 print(classification_report(y_test, preds, target_names=['Low Risk', 'High Risk'], digits=4))
 print(f"Test ROC-AUC: {roc_auc_score(y_test, probs):.4f}")
+print("="*50)"""),
+
+    nbf.v4.new_markdown_cell("""#### Experiment A: Proactive Early Risk Classifier (Weeks 1-3)
+Evaluates whether students at risk of dropout can be reliably identified after only 3 weeks of curriculum telemetry."""),
+
+    nbf.v4.new_code_cell("""early_feature_cols = ckpt['early_feature_cols']
+X_test_early = test_df[early_feature_cols].values
+X_test_early_scaled = (X_test_early - ckpt['early_scaler_mean']) / ckpt['early_scaler_scale']
+
+early_model = LearnerRiskClassifier(input_dim=len(early_feature_cols), hidden_dim=64)
+early_model.load_state_dict(ckpt['early_model_state_dict'])
+early_model.eval()
+
+with torch.no_grad():
+    early_logits = early_model(torch.tensor(X_test_early_scaled, dtype=torch.float32))
+    early_probs = torch.sigmoid(early_logits).squeeze().numpy()
+
+early_thresh = ckpt.get('early_threshold', 0.35)
+early_preds = (early_probs >= early_thresh).astype(int)
+
+print("="*50)
+print("EXPERIMENT A (WEEKS 1-3) INDEPENDENT TEST REPORT:")
+print(classification_report(y_test, early_preds, target_names=['Low Risk', 'High Risk'], digits=4))
+print(f"Early Test ROC-AUC: {roc_auc_score(y_test, early_probs):.4f}")
 print("="*50)"""),
 
     nbf.v4.new_markdown_cell("""#### Confusion Matrix & Latent Space Projections"""),
@@ -518,10 +542,10 @@ Word2Vec constructs word-level dense representations. When encountering out-of-v
 
 df_oov = pd.DataFrame([
     {
-        'Query Token': res['word'],
-        'Token Type': res['type'],
-        'Word2Vec Status': res['word2vec_result'],
-        'FastText Status': res['fasttext_result']
+        'Query Token': res['query_token'],
+        'Target Canonical Term': res['ground_truth_target'],
+        'Word2Vec Status': res['word2vec_outcome'],
+        'FastText Status': res['fasttext_outcome']
     }
     for res in oov_results['oov_test']
 ])

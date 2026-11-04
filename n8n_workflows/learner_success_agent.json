@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 1. Ingest learner query and strictly validate payload\nconst body = $json.body || $json;\nconst query = (body.query_text || '').trim();\nif (!query) {\n  throw new Error(\"Bad Request: 'query_text' cannot be blank or contain only whitespace.\");\n}\n\nreturn {\n  learner_id: body.learner_id || 'LRN-1001',\n  query_text: query,\n  cohort_city: body.cohort_city || 'Cairo',\n  received_at: new Date().toISOString()\n};"
+        "jsCode": "// 1. Ingest learner query and strictly validate payload\nconst body = $json.body || $json;\nconst query = (body.query_text || '').trim();\nconst learnerId = (body.learner_id || '').trim();\n\nif (!learnerId) {\n  throw new Error(\"Bad Request: 'learner_id' is required and cannot be blank or unassigned.\");\n}\nif (!query) {\n  throw new Error(\"Bad Request: 'query_text' cannot be blank or contain only whitespace.\");\n}\n\nreturn {\n  learner_id: learnerId,\n  query_text: query,\n  cohort_city: body.cohort_city || 'Cairo',\n  received_at: new Date().toISOString()\n};"
       },
       "id": "node-parse-query",
       "name": "Parse & Validate Query",
@@ -77,7 +77,7 @@
         "url": "={{ $env.FASTAPI_BASE_URL || 'http://sprints-ai-api:8000' }}/api/v1/tickets/escalate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"query_text\": \"{{ $json.query_text }}\",\n  \"module_id\": \"{{ $json.extracted_modules && $json.extracted_modules.length > 0 ? ('MOD-' + $json.extracted_modules[0].toUpperCase()) : 'MOD-PYT-02' }}\",\n  \"sentiment_polarity\": {{ $json.sentiment.polarity }},\n  \"sentiment_subjectivity\": {{ $json.sentiment.subjectivity }},\n  \"priority\": \"{{ $json.priority }}\",\n  \"status\": \"Pending_Human_Escalation\"\n}",
+        "jsonBody": "={\n  \"learner_id\": \"{{ $json.learner_id }}\",\n  \"query_text\": \"{{ $json.query_text }}\",\n  \"module_id\": \"{{ $json.extracted_modules && $json.extracted_modules.length > 0 ? $json.extracted_modules[0] : 'MOD-201' }}\",\n  \"sentiment_polarity\": {{ $json.sentiment.polarity }},\n  \"sentiment_subjectivity\": {{ $json.sentiment.subjectivity }},\n  \"priority\": \"{{ $json.priority }}\",\n  \"status\": \"Pending_Human_Escalation\"\n}",
         "options": {
           "timeout": 3000
         }

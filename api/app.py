@@ -79,7 +79,42 @@ DB_PATH = os.path.join(project_root, 'database', 'sprints_learners.db')
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    assert conn.execute("PRAGMA foreign_keys;").fetchone()[0] == 1, "Foreign key enforcement failed"
     return conn
+
+def resolve_module_id(mod_input: Optional[str], cur: sqlite3.Cursor) -> Optional[str]:
+    """
+    Maps student / NER module keywords to valid foreign keys in course_modules table.
+    Returns None if unmapped to maintain referential integrity without foreign key violations.
+    """
+    if not mod_input or not str(mod_input).strip():
+        return None
+    mod_clean = str(mod_input).strip().lower()
+    mapping = {
+        'sql': 'MOD-101',
+        'relational sql': 'MOD-101',
+        'mod-101': 'MOD-101',
+        'pandas': 'MOD-102',
+        'pandas wrangling': 'MOD-102',
+        'mod-102': 'MOD-102',
+        'pytorch': 'MOD-201',
+        'supervised ml': 'MOD-201',
+        'mod-201': 'MOD-201',
+        'mod-pyt-02': 'MOD-201',
+        'lstm': 'MOD-301',
+        'deep sequence': 'MOD-301',
+        'mod-301': 'MOD-301',
+        'nlp': 'MOD-401',
+        'nlp & generative ai': 'MOD-401',
+        'word2vec': 'MOD-401',
+        'fasttext': 'MOD-401',
+        'mod-401': 'MOD-401'
+    }
+    target_id = mapping.get(mod_clean, str(mod_input).strip().upper())
+    cur.execute("SELECT module_id FROM course_modules WHERE module_id = ?", (target_id,))
+    row = cur.fetchone()
+    return row['module_id'] if row else None
 
 @app.on_event("startup")
 def load_all_models():
@@ -96,17 +131,27 @@ def load_all_models():
         GLOBAL_MODELS["word2vec"] = Word2Vec.load(w2v_path)
         print("Loaded Gensim Word2Vec Dense Embeddings.")
         
-    # 3. Load PyTorch Risk Classifier
+    # 3. Load PyTorch Risk Classifiers (Both Exp A and Exp B)
     risk_path = os.path.join(models_dir, 'risk_classifier.pth')
     if os.path.exists(risk_path):
         ckpt = torch.load(risk_path, weights_only=False)
+        # Experiment B: Full Trajectory (Weeks 1-5)
         feature_cols = ckpt['feature_cols']
         classifier = LearnerRiskClassifier(input_dim=len(feature_cols), hidden_dim=64)
         classifier.load_state_dict(ckpt['model_state_dict'])
         classifier.eval()
         GLOBAL_MODELS["risk_classifier"] = classifier
+        
+        # Experiment A: Early Proactive Risk (Weeks 1-3)
+        early_cols = ckpt.get('early_feature_cols')
+        if early_cols and 'early_model_state_dict' in ckpt:
+            early_classifier = LearnerRiskClassifier(input_dim=len(early_cols), hidden_dim=64)
+            early_classifier.load_state_dict(ckpt['early_model_state_dict'])
+            early_classifier.eval()
+            GLOBAL_MODELS["early_risk_classifier"] = early_classifier
+            
         GLOBAL_MODELS["risk_meta"] = ckpt
-        print("Loaded PyTorch Risk Classifier (Exp A / Exp B).")
+        print("Loaded PyTorch Risk Classifiers (Exp A Early & Exp B Full).")
         
     # 4. Load PyTorch Sequence LSTM
     lstm_path = os.path.join(models_dir, 'sequence_predictor.pth')
@@ -161,6 +206,13 @@ class RiskPredictionRequest(BaseModel):
     week_3_quiz: float = Field(..., ge=0.0, le=100.0, example=48.0)
     week_4_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=40.0)
     week_5_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=35.0)
+
+class EarlyRiskPredictionRequest(BaseModel):
+    learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
+    week_1_quiz: float = Field(..., ge=0.0, le=100.0, example=65.0)
+    week_2_quiz: float = Field(..., ge=0.0, le=100.0, example=58.0)
+    week_3_quiz: float = Field(..., ge=0.0, le=100.0, example=48.0)
+    early_missing_count: Optional[int] = Field(0, ge=0, le=3, example=0)
 
 class SequencePredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1001")
@@ -224,19 +276,27 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
     """
     Persistent escalation endpoint: logs escalated tickets directly into
     the SQLite relational database (support_tickets table).
-    Ensures human mentors have full visibility of critical student interventions.
+    Strictly verifies learner existence (returns 404 Not Found if missing).
+    Resolves module keywords to valid foreign keys in course_modules table.
     """
     start_time = time.time()
     ticket_id = f"TCK-ESC-{int(time.time()*1000) % 1000000:06d}"
     
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
         cur = conn.cursor()
         
-        # Verify if learner exists; if not, use fallback LRN-1001 to maintain referential integrity
+        # Verify learner existence; strictly reject unknown IDs with 404
         cur.execute("SELECT learner_id FROM learners WHERE learner_id = ?", (req.learner_id,))
         row = cur.fetchone()
-        actual_learner_id = row['learner_id'] if row else 'LRN-1001'
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Learner ID '{req.learner_id}' not found in database. Referential integrity prevented ticket escalation."
+            )
+            
+        # Map module ID to valid course_modules foreign key or None
+        resolved_mod = resolve_module_id(req.module_id, cur)
         
         cur.execute("""
             INSERT INTO support_tickets (
@@ -246,8 +306,8 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
         """, (
             ticket_id,
-            actual_learner_id,
-            req.module_id,
+            req.learner_id,
+            resolved_mod,
             req.query_text,
             req.sentiment_polarity,
             req.sentiment_subjectivity,
@@ -255,21 +315,28 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
             req.priority
         ))
         conn.commit()
-        conn.close()
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database escalation write failed: {str(e)}"
         )
+    finally:
+        try:
+            conn.close()
+        except:
+            pass
         
     execution_latency_ms = round((time.time() - start_time) * 1000, 2)
     return {
         "status": "persisted",
         "ticket_id": ticket_id,
         "learner_id": req.learner_id,
+        "module_id": resolved_mod,
         "db_record_status": req.status,
         "priority": req.priority,
-        "message": "Escalation ticket persisted successfully into relational database.",
+        "message": "Escalation ticket persisted successfully into relational database with referential integrity verified.",
         "execution_latency_ms": execution_latency_ms
     }
 
@@ -284,40 +351,102 @@ def predict_learner_risk(req: RiskPredictionRequest):
         
     start_time = time.time()
     ckpt = GLOBAL_MODELS["risk_meta"]
-    feature_cols = ckpt['feature_cols']
     
-    w4 = req.week_4_quiz if req.week_4_quiz is not None else req.week_3_quiz
-    w5 = req.week_5_quiz if req.week_5_quiz is not None else req.week_3_quiz
-    quizzes = [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, w4, w5]
-    score_delta = quizzes[0] - quizzes[-1]
-    quiz_mean = float(np.mean(quizzes))
-    quiz_std = float(np.std(quizzes))
-    quiz_min = float(np.min(quizzes))
-    perf_ratio = quizzes[-1] / (quizzes[0] + 1e-5)
-    missing_count = sum(1 for q in [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, req.week_4_quiz, req.week_5_quiz] if q is None)
+    # Check if this is an early intervention scenario (Weeks 1-3 only)
+    is_early = (req.week_4_quiz is None and req.week_5_quiz is None)
     
-    raw_feats = np.array([quizzes + [score_delta, quiz_mean, quiz_std, quiz_min, perf_ratio, missing_count]])
+    if is_early and "early_risk_classifier" in GLOBAL_MODELS:
+        model = GLOBAL_MODELS["early_risk_classifier"]
+        w13 = [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz]
+        delta_w1_w3 = w13[0] - w13[2]
+        early_mean = float(np.mean(w13))
+        early_min = float(np.min(w13))
+        early_missing = 0
+        raw_feats = np.array([[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, delta_w1_w3, early_mean, early_min, early_missing]])
+        mean = ckpt['early_scaler_mean']
+        scale = ckpt['early_scaler_scale']
+        scaled_feats = (raw_feats - mean) / scale
+        threshold = float(ckpt.get('early_threshold', 0.35))
+        model_used = "Experiment A: Early Proactive Risk (Weeks 1-3)"
+        score_delta = delta_w1_w3
+    else:
+        model = GLOBAL_MODELS["risk_classifier"]
+        w4 = req.week_4_quiz if req.week_4_quiz is not None else req.week_3_quiz
+        w5 = req.week_5_quiz if req.week_5_quiz is not None else req.week_3_quiz
+        quizzes = [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, w4, w5]
+        score_delta = quizzes[0] - quizzes[-1]
+        quiz_mean = float(np.mean(quizzes))
+        quiz_std = float(np.std(quizzes))
+        quiz_min = float(np.min(quizzes))
+        perf_ratio = quizzes[-1] / (quizzes[0] + 1e-5)
+        missing_count = sum(1 for q in [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, req.week_4_quiz, req.week_5_quiz] if q is None)
+        raw_feats = np.array([quizzes + [score_delta, quiz_mean, quiz_std, quiz_min, perf_ratio, missing_count]])
+        mean = ckpt['scaler_mean']
+        scale = ckpt['scaler_scale']
+        scaled_feats = (raw_feats - mean) / scale
+        threshold = float(ckpt.get('decision_threshold', 0.35))
+        model_used = "Experiment B: Full Trajectory Risk (Weeks 1-5)"
         
-    mean = ckpt['scaler_mean']
-    scale = ckpt['scaler_scale']
-    scaled_feats = (raw_feats - mean) / scale
-    
-    model = GLOBAL_MODELS["risk_classifier"]
     with torch.no_grad():
         tensor_x = torch.tensor(scaled_feats, dtype=torch.float32)
         logits = model(tensor_x)
         prob = float(torch.sigmoid(logits).item())
         
-    threshold = float(ckpt.get('decision_threshold', 0.42))
     is_high_risk = bool(prob >= threshold)
     
     return {
         "learner_id": req.learner_id,
+        "model_used": model_used,
         "risk_probability": round(prob, 4),
         "risk_level": "High Risk" if is_high_risk else "Low Risk",
         "flagged_for_intervention": is_high_risk,
         "decision_threshold": round(threshold, 2),
         "score_delta": round(float(score_delta), 1),
+        "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
+    }
+
+@app.post("/api/v1/predict_risk_early")
+def predict_learner_risk_early(req: EarlyRiskPredictionRequest):
+    """
+    Sprint 2 (Experiment A): Dedicated Proactive Early Risk Classifier.
+    Predicts dropout risk at Week 3 before learner attrition occurs.
+    Test F1 = 0.9714 | Recall = 0.9855 | ROC-AUC = 0.9996
+    """
+    if "early_risk_classifier" not in GLOBAL_MODELS:
+        raise HTTPException(status_code=503, detail="Early risk classifier model not loaded.")
+        
+    start_time = time.time()
+    ckpt = GLOBAL_MODELS["risk_meta"]
+    model = GLOBAL_MODELS["early_risk_classifier"]
+    
+    w13 = [req.week_1_quiz, req.week_2_quiz, req.week_3_quiz]
+    delta_w1_w3 = w13[0] - w13[2]
+    early_mean = float(np.mean(w13))
+    early_min = float(np.min(w13))
+    early_missing = req.early_missing_count or 0
+    raw_feats = np.array([[req.week_1_quiz, req.week_2_quiz, req.week_3_quiz, delta_w1_w3, early_mean, early_min, early_missing]])
+    
+    mean = ckpt['early_scaler_mean']
+    scale = ckpt['early_scaler_scale']
+    scaled_feats = (raw_feats - mean) / scale
+    threshold = float(ckpt.get('early_threshold', 0.35))
+    
+    with torch.no_grad():
+        tensor_x = torch.tensor(scaled_feats, dtype=torch.float32)
+        logits = model(tensor_x)
+        prob = float(torch.sigmoid(logits).item())
+        
+    is_high_risk = bool(prob >= threshold)
+    
+    return {
+        "learner_id": req.learner_id,
+        "model_used": "Experiment A: Proactive Early Risk (Weeks 1-3)",
+        "risk_probability": round(prob, 4),
+        "risk_level": "High Risk" if is_high_risk else "Low Risk",
+        "flagged_for_intervention": is_high_risk,
+        "decision_threshold": round(threshold, 2),
+        "score_delta_w1_w3": round(float(delta_w1_w3), 1),
+        "early_mean_score": round(float(early_mean), 1),
         "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
     }
 

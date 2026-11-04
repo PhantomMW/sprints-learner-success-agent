@@ -21,7 +21,7 @@ from typing import Dict, List, Tuple, Any
 import spacy
 from spacy.pipeline import EntityRuler
 from textblob import TextBlob
-from gensim.models import Word2Vec
+from gensim.models import Word2Vec, FastText
 import nltk
 from nltk.corpus import stopwords
 
@@ -250,12 +250,15 @@ def vectorize_text_word2vec(text: str, w2v_model: Word2Vec) -> np.ndarray:
     norm = np.linalg.norm(mean_vec)
     return mean_vec / (norm + 1e-7)
 
-def semantic_rag_retrieve(query_text: str, w2v_model: Word2Vec, top_k: int = 1) -> List[Dict[str, Any]]:
+def semantic_rag_retrieve(query_text: str, w2v_model: Word2Vec, top_k: int = 1, min_similarity_threshold: float = 0.25) -> List[Dict[str, Any]]:
     """
     True Semantic Vector RAG: Computes cosine similarity between query vector
     and pre-computed curriculum knowledge chunk vectors.
+    Includes confidence thresholding: if query vector is zero or top similarity < threshold,
+    returns a graceful fallback object preventing hallucination on OOV/unrelated queries.
     """
     query_vec = vectorize_text_word2vec(query_text, w2v_model)
+    is_zero_vector = bool(np.all(query_vec == 0))
     
     results = []
     for chunk in CURRICULUM_KNOWLEDGE_CHUNKS:
@@ -266,10 +269,24 @@ def semantic_rag_retrieve(query_text: str, w2v_model: Word2Vec, top_k: int = 1) 
             "module": chunk["module"],
             "title": chunk["title"],
             "text": chunk["text"],
-            "similarity_score": round(sim, 4)
+            "similarity_score": round(sim, 4),
+            "confidence": "High / Semantic Match" if sim >= min_similarity_threshold else "Low / Below Threshold"
         })
         
     results.sort(key=lambda x: x["similarity_score"], reverse=True)
+    
+    # Graceful fallback for zero vocabulary or low-similarity unrelated queries
+    if is_zero_vector or not results or results[0]["similarity_score"] < min_similarity_threshold:
+        fallback = {
+            "chunk_id": "CHK-FALLBACK-01",
+            "module": "General",
+            "title": "General Sprints Support & Academic Advising",
+            "text": "For questions outside the technical syllabus or when terms are unrecognized, please refer to the Sprints Student Handbook or consult your Academic Advisor during weekly office hours.",
+            "similarity_score": round(results[0]["similarity_score"], 4) if results else 0.0,
+            "confidence": "Low / Fallback"
+        }
+        return [fallback]
+        
     return results[:top_k]
 
 def deliberative_agent_router(query_text: str, nlp_model=None, w2v_model=None, risk_level: str = "Low") -> Dict[str, Any]:
@@ -306,9 +323,9 @@ def deliberative_agent_router(query_text: str, nlp_model=None, w2v_model=None, r
         priority = "Medium" if entities["CURRICULUM_MODULE"] else "Low"
         action_summary = "Routed to Semantic Vector RAG knowledge engine."
         
-        # Perform Semantic Vector Retrieval
+        # Perform Semantic Vector Retrieval with similarity thresholding
         if w2v_model is not None:
-            top_retrievals = semantic_rag_retrieve(query_text, w2v_model, top_k=1)
+            top_retrievals = semantic_rag_retrieve(query_text, w2v_model, top_k=1, min_similarity_threshold=0.25)
             retrieved_chunk = top_retrievals[0] if top_retrievals else None
         else:
             retrieved_chunk = CURRICULUM_KNOWLEDGE_CHUNKS[0]
@@ -336,7 +353,7 @@ def deliberative_agent_router(query_text: str, nlp_model=None, w2v_model=None, r
 # 4. WORD2VEC TRAINING & FASTTEXT BENCHMARK
 # ==============================================================================
 
-def train_word2vec_model(csv_path: str, model_path: str, bin_path: str):
+def train_nlp_embeddings(csv_path: str, model_path: str, bin_path: str):
     df = pd.read_csv(csv_path)
     forum_texts = df['forum_feedback_text'].dropna().tolist()
     
@@ -368,10 +385,15 @@ def train_word2vec_model(csv_path: str, model_path: str, bin_path: str):
             
     print(f"Training Gensim Word2Vec on {len(corpus)} tokenized sentences...")
     w2v = Word2Vec(sentences=corpus, vector_size=100, window=5, min_count=1, workers=4, sg=1, epochs=40, seed=42)
-    
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     w2v.save(model_path)
     print(f"Word2Vec model saved: {model_path} (Vocab size: {len(w2v.wv)})")
+    
+    print(f"Training Gensim FastText with subword n-grams (min_n=3, max_n=6, bucket=10000)...")
+    ft = FastText(sentences=corpus, vector_size=100, window=5, min_count=1, workers=4, sg=1, epochs=40, seed=42, min_n=3, max_n=6, bucket=10000)
+    ft_path = os.path.join(os.path.dirname(model_path), 'fasttext.model')
+    ft.save(ft_path)
+    print(f"FastText model saved: {ft_path}")
     
     vocab = list(w2v.wv.index_to_key)
     vectors = {w: w2v.wv[w] for w in vocab}
@@ -379,19 +401,29 @@ def train_word2vec_model(csv_path: str, model_path: str, bin_path: str):
     with open(bin_path, 'wb') as f:
         pickle.dump(vectors, f)
     print(f"Dense embeddings saved: {bin_path}")
+    return w2v, ft
+
+def train_word2vec_model(csv_path: str, model_path: str, bin_path: str):
+    w2v, _ = train_nlp_embeddings(csv_path, model_path, bin_path)
     return w2v
 
-def run_word2vec_fasttext_comparison(w2v_model=None):
+def run_word2vec_fasttext_comparison(w2v_model=None, ft_model=None):
     """
     Empirical demonstration of Word2Vec vs FastText capabilities and OOV failures.
+    Demonstrates actual Gensim FastText subword vector synthesis vs Word2Vec KeyError.
     """
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if w2v_model is None:
-        model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models', 'word2vec.model')
+        model_path = os.path.join(base_dir, 'models', 'word2vec.model')
         if os.path.exists(model_path):
             w2v_model = Word2Vec.load(model_path)
+    if ft_model is None:
+        ft_path = os.path.join(base_dir, 'models', 'fasttext.model')
+        if os.path.exists(ft_path):
+            ft_model = FastText.load(ft_path)
             
     print("\n" + "="*60)
-    print("EMPIRICAL BENCHMARK: WORD2VEC VS FASTTEXT")
+    print("EMPIRICAL BENCHMARK: WORD2VEC VS FASTTEXT (OOV SUBWORD DEMO)")
     print("="*60)
     
     # In-vocabulary semantic neighborhood
@@ -401,27 +433,40 @@ def run_word2vec_fasttext_comparison(w2v_model=None):
             sims = w2v_model.wv.most_similar(term, topn=3)
             print(f"  -> '{term}' nearest neighbors: {[(s[0], round(s[1], 3)) for s in sims]}")
             
-    # Out-of-Vocabulary (OOV) Failure in Word2Vec
-    oov_words = ['pytorxh', 'lstmm', 'pndas', 'bert_finetuned']
+    # Out-of-Vocabulary (OOV) Stress Test
+    oov_test_pairs = [
+        ('pytorxh', 'pytorch'),
+        ('lstmm', 'lstm'),
+        ('pndas', 'pandas'),
+        ('sqll', 'sql')
+    ]
     oov_test = []
-    print("\nOut-of-Vocabulary (OOV) Stress Test in Word2Vec:")
-    for oov in oov_words:
-        is_in = oov in w2v_model.wv
-        w2v_res = "Vector Retrieved" if is_in else "KeyError (OOV Failure)"
-        ft_res = "Subword n-gram Interpolation (Success)"
-        oov_test.append({
-            'word': oov,
-            'type': 'Typo / OOV',
-            'word2vec_result': w2v_res,
-            'fasttext_result': ft_res
-        })
-        print(f"  -> '{oov}': {w2v_res}")
+    print("\nEmpirical Out-of-Vocabulary (OOV) Stress Test (Real Gensim Execution):")
+    for typo, target in oov_test_pairs:
+        # Word2Vec test
+        w2v_has = typo in w2v_model.wv
+        w2v_res = "Vector Retrieved" if w2v_has else "KeyError (Word Not In Vocab)"
+        
+        # FastText test: actual subword vector recovery and cosine similarity
+        if ft_model is not None:
+            typo_vec = ft_model.wv[typo]
+            target_vec = ft_model.wv[target]
+            sim = float(np.dot(typo_vec, target_vec) / (np.linalg.norm(typo_vec) * np.linalg.norm(target_vec) + 1e-7))
+            ft_res = f"Subword Reconstruction [OK] (Cosine Sim with '{target}': {sim:.4f})"
+        else:
+            ft_res = "FastText model not loaded"
             
-    print("\nHow FastText Resolves This:")
-    print("  -> FastText breaks 'pytorxh' into character n-grams: ['<py', 'pyt', 'ytor', 'orx', 'rxh', 'xh>'].")
-    print("  -> It sums the embeddings of '<py', 'pyt', 'ytor' (shared with 'pytorch'), synthesizing a 90%+ accurate vector!")
+        oov_test.append({
+            'query_token': typo,
+            'ground_truth_target': target,
+            'word2vec_outcome': w2v_res,
+            'fasttext_outcome': ft_res
+        })
+        print(f"  Typo '{typo}':")
+        print(f"    - Word2Vec: {w2v_res}")
+        print(f"    - FastText: {ft_res}")
+        
     print("="*60)
-    
     return {
         "status": "completed",
         "oov_test": oov_test
@@ -442,11 +487,11 @@ def main():
     # 1. Independent NER Benchmark
     evaluate_ner_benchmark(nlp_model=nlp)
     
-    # 2. Train Word2Vec
-    w2v = train_word2vec_model(csv_path, model_path, bin_path)
+    # 2. Train Word2Vec & FastText Models
+    w2v, ft = train_nlp_embeddings(csv_path, model_path, bin_path)
     
     # 3. Word2Vec vs FastText
-    run_word2vec_fasttext_comparison(w2v)
+    run_word2vec_fasttext_comparison(w2v, ft)
     
     # 4. Test Semantic Vector RAG Retrieval
     print("\n" + "="*60)
