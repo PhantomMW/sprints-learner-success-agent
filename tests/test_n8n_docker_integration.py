@@ -235,7 +235,7 @@ def main():
     print("\n--- Test Path B: Distressed Query (Urgent Human Escalation) ---")
     esc_payload = {
         "learner_id": "LRN-1019",
-        "query_text": "أنا مش فاهم PyTorch خالص ومحبط جداً وعايز مساعدة ضروري",
+        "query_text": "أنا مش فاهم PyTorch خالص ومحبط جداً وعايز مساعدة ضروري - urgent mentor escalation needed",
         "cohort_city": "Alexandria"
     }
     t0 = time.time()

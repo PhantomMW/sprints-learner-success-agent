@@ -175,6 +175,19 @@ def analyze_sentiment(text: str) -> Dict[str, Any]:
     blob = TextBlob(text)
     pol = round(blob.sentiment.polarity, 4)
     subj = round(blob.sentiment.subjectivity, 4)
+
+    # Support Egyptian Arabic dialect distress keywords
+    arabic_negative_lexicon = [
+        'مش فاهم', 'مش فاهمه', 'مش فاهمين', 'محبط', 'محبطه', 'مخنوق', 'مخنوقه', 
+        'مش عارف', 'مش عارفه', 'مش قادر', 'مش قادره', 'مش لاحق', 'مش لاحقه', 
+        'فاشل', 'فاشله', 'ساقط', 'ساقطه', 'منسحب', 'منسحبه', 'انسحاب', 'هسيب',
+        'صعب جدا', 'معقد جدا', 'مش نافع', 'كارثة', 'ضايع', 'ضايعه'
+    ]
+    if any(term in text for term in arabic_negative_lexicon):
+        if pol >= -0.15:
+            pol = -0.55
+            subj = max(subj, 0.75)
+
     classification = "Negative" if pol < -0.15 else ("Positive" if pol > 0.15 else "Neutral")
     return {
         "polarity": pol,
@@ -302,7 +315,10 @@ def deliberative_agent_router(query_text: str, nlp_model=None, w2v_model=None, r
     sentiment = analyze_sentiment(query_text)
     entities = extract_entities(query_text, nlp_model=nlp_model)
     
-    urgency_keywords = ['quitting', 'drop out', 'dropping out', 'withdraw', 'lost laptop', 'worst experience', 'give up', 'urgent', 'cant keep up', "can't keep up"]
+    urgency_keywords = [
+        'quitting', 'drop out', 'dropping out', 'withdraw', 'lost laptop', 'worst experience', 'give up', 'urgent', 'cant keep up', "can't keep up",
+        'مش فاهم', 'مش فاهمه', 'محبط', 'محبطه', 'مخنوق', 'ضروري', 'عايز مساعدة', 'عايزه مساعدة', 'منسحب', 'انسحاب', 'هسيب', 'مش قادر', 'مش قادره', 'مش لاحق', 'مش عارف', 'ضايع'
+    ]
     has_urgency = any(kw in query_text.lower() for kw in urgency_keywords)
     polarity = sentiment['polarity']
     
