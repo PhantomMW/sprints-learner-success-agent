@@ -77,6 +77,8 @@ CREATE TABLE support_tickets (
     status VARCHAR(20) CHECK (status IN ('Open', 'Pending_Human_Escalation', 'Resolved_By_Agent', 'Resolved_By_Mentor')) NOT NULL,
     priority VARCHAR(15) CHECK (priority IN ('Low', 'Medium', 'High', 'Critical')) NOT NULL,
     escalation_flag BOOLEAN DEFAULT 0,
+    correlation_id VARCHAR(64),
+    idempotency_key VARCHAR(64) UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     resolved_at TIMESTAMP,
     FOREIGN KEY (learner_id) REFERENCES learners(learner_id) ON DELETE CASCADE,

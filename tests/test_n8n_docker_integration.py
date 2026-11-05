@@ -225,6 +225,7 @@ def main():
     print("   Ticket ID:", data_rag.get("ticket_id"))
     print("   DB Persisted Flag:", data_rag.get("db_persisted"))
 
+    assert data_rag.get("correlation_id") is not None, "Path A must return correlation_id"
     assert data_rag.get("status") == "resolved_auto", f"Expected 'resolved_auto', got {data_rag.get('status')}"
     assert data_rag.get("db_persisted") is False, "Automated RAG must NOT mark db_persisted as True"
     assert str(data_rag.get("ticket_id")).startswith("TCK-AUTO-"), "Ticket ID must follow TCK-AUTO prefix"
@@ -258,6 +259,8 @@ def main():
     print("   Ticket ID:", data_ar.get("ticket_id"))
     print("   DB Persisted Flag:", data_ar.get("db_persisted"))
 
+    assert data_ar.get("correlation_id") is not None, "Path B must return correlation_id"
+    assert data_ar.get("idempotency_key") is not None, "Path B must return idempotency_key"
     assert data_ar.get("status") == "escalated", f"Expected 'escalated', got {data_ar.get('status')}"
     assert data_ar.get("db_persisted") is True, "Escalated ticket must be marked db_persisted = True"
     assert str(data_ar.get("ticket_id")).startswith("TCK-ESC-"), "Ticket ID must follow TCK-ESC prefix"

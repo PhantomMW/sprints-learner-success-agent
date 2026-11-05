@@ -46,6 +46,10 @@ jobs:
         run: |
           python -m pytest -v tests/test_arabic_nlp_metrics.py
 
+      - name: Sprint 4 - Idempotency Key, Concurrent Deduplication & Correlation ID Tracing
+        run: |
+          python -m pytest -v tests/test_idempotency_and_retry.py
+
       - name: Sprint 4 - n8n Workflow Engine & JavaScript Code Verification
         run: |
           node tests/test_n8n_workflow_engine.js

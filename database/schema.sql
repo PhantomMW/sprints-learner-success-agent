@@ -72,6 +72,8 @@ CREATE TABLE support_tickets (
     status VARCHAR(30) CHECK (status IN ('Open', 'Pending_Human_Escalation', 'Resolved_By_Agent', 'Resolved_By_Mentor')) NOT NULL,
     priority VARCHAR(15) CHECK (priority IN ('Low', 'Medium', 'High', 'Critical')) NOT NULL,
     escalation_flag BOOLEAN DEFAULT 0,
+    correlation_id VARCHAR(64),
+    idempotency_key VARCHAR(64) UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     resolved_at TIMESTAMP,
     FOREIGN KEY (learner_id) REFERENCES learners(learner_id) ON DELETE CASCADE,
@@ -96,4 +98,6 @@ CREATE INDEX idx_learners_dropped ON learners(dropped_out);
 CREATE INDEX idx_quiz_learner_week ON quiz_grades(learner_id, week_number);
 CREATE INDEX idx_tickets_sentiment ON support_tickets(sentiment_polarity, escalation_flag);
 CREATE INDEX idx_tickets_status ON support_tickets(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_idempotency ON support_tickets(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_tickets_correlation ON support_tickets(correlation_id);
 CREATE INDEX idx_logs_learner_action ON interaction_logs(learner_id, action_type);

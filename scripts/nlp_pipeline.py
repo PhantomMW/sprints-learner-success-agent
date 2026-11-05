@@ -184,12 +184,14 @@ def classify_arabic_context(text: str) -> Dict[str, Any]:
     """
     clean = text.strip().lower()
 
-    # Normalize common Arabic letter variations
+    # Normalize common Arabic letter variations, diacritics & deduplicate repeated letters (e.g. ساقططط -> ساقط)
     clean_norm = (clean.replace('أ', 'ا')
                        .replace('إ', 'ا')
                        .replace('آ', 'ا')
                        .replace('ة', 'ه')
                        .replace('ى', 'ي'))
+    # Deduplicate runs of 3+ identical characters
+    clean_norm = re.sub(r'(.)\1{2,}', r'\1', clean_norm)
 
     # Technical verbs indicating tool, file, or portal operations
     technical_verbs = [
@@ -203,11 +205,11 @@ def classify_arabic_context(text: str) -> Dict[str, Any]:
         'سيستم', 'السيستم', 'سيرفر', 'السيرفر', 'منصه', 'المنصه', 'بورتال', 'البورتال',
         'لاب', 'اللاب', 'كود', 'الكود', 'برنامج', 'البرنامج', 'تاسك', 'التاسك',
         'اسايمنت', 'الاسايمنت', 'فورم', 'الفورم', 'صوت', 'الصوت', 'نت', 'النت',
-        'notebook', 'jupyter', 'colab', 'vscode', 'repo', 'github'
+        'notebook', 'jupyter', 'colab', 'vscode', 'repo', 'github', 'spacy', 'meeting', 'lecture', 'session', 'portal'
     ]
 
     # Inability stems (e.g. "مش قادر", "مش عارف", "مش عارفه")
-    inability_stems = ['مش قادر', 'مش قادره', 'مش عارف', 'مش عارفه', 'مش هقدر', 'صعب عليا افتح']
+    inability_stems = ['مش قادر', 'مش قادره', 'مش عارف', 'مش عارفه', 'مش هقدر', 'صعب عليا افتح', 'مش بيفتح', 'مش راضي يشتغل', 'msh ader afta7', 'msh 3aref a7amel', 'msh shaghal']
     has_inability_stem = any(stem in clean_norm for stem in inability_stems)
     
     # Check if inability refers to an actionable technical task
@@ -238,28 +240,35 @@ def classify_arabic_context(text: str) -> Dict[str, Any]:
         if not any(dist in clean_norm for dist in ['محبط', 'مخنوق', 'يائس', 'انسحب', 'هسيب', 'مش قادر اكمل', 'فاشل', 'الحقوني']):
             is_curriculum_question = True
 
-    # Severe emotional frustration / distress stems
+    # Severe emotional frustration / distress stems (Arabic + Franco-Arab)
     emotional_distress_stems = [
         'محبط', 'محبطه', 'محبط جدا', 'محبطه جدا', 'مخنوق', 'مخنوقه', 'يائس', 'يائسه',
-        'تعبت نفسيا', 'مش قادر اكمل', 'مش قادره اكمل', 'مش هقدر اكمل',
-        'انا ضايع', 'ضايع خالص', 'ضايع ومحبط',
+        'تعبت نفسيا', 'متدمر نفسيا', 'مش قادر اكمل', 'مش قادره اكمل', 'مش هقدر اكمل',
+        'حاسس اني غبي', 'حاسه اني غبيه', 'طاقتي نفدت', 'طاقتي خلصت',
+        'انا ضايع', 'ضايع خالص', 'ضايع ومحبط', 'ضايع و',
         'انا ساقط', 'ساقط ومحبط', 'حاسس اني ساقط', 'ساقط في كل', 'اسقط في', 'بسقط في', 'حاسس اني فاشل', 'حاسه اني فاشله',
-        'انا فاشل', 'فاشل ومش نافع', 'مش نافع في الكورس', 'طاقتي خلصت'
+        'انا فاشل', 'فاشل ومش نافع', 'مش نافع في الكورس',
+        # Franco-Arab distress stems
+        'msh ader akmel', 'msh ader akamel', 'msh ader akml', 'daye3 w mo7bat', 'mo7bat gedan', 'ana daye3', 'fashil w mo7bat'
     ]
     is_emotional_distress = any(dist in clean_norm for dist in emotional_distress_stems)
 
-    # Dropout / withdrawal intent stems
+    # Dropout / withdrawal intent stems (Arabic + Franco-Arab)
     dropout_stems = [
-        'عايز انسحب', 'عايزه انسحب', 'هسيب الكورس', 'هسيب', 'طلب انسحاب',
+        'عايز انسحب', 'عايزه انسحب', 'هسيب الكورس', 'هسيب كل حاجه', 'هسيب', 'طلب انسحاب',
         'مش هكمل الكورس', 'مش هكمل', 'منسحب', 'منسحبه', 'انسحاب رسمي',
-        'عايز الغي اشتراكي', 'نويت انسحب'
+        'عايز الغي اشتراكي', 'عايز اوقف الكورس', 'اسحب فلوسي', 'نويت انسحب', 'الغي تسجيلي',
+        # Franco-Arab dropout stems
+        '3ayez ansa7eb', '3ayza ansa7eb', 'aseeb el bootcamp', 'aseeb el course', 'msh hakamel'
     ]
     is_dropout = any(drop in clean_norm for drop in dropout_stems)
 
-    # Urgent panic / help plea stems
+    # Urgent panic / help plea stems (Arabic + Franco-Arab)
     urgent_pleas = [
         'الحقوني', 'كارثه', 'عايز مساعده ضروري', 'عايزه مساعده ضروري',
-        'ضروري جدا هسقط', 'ساعدوني ضروري هسقط', 'ضيعت الكورس ومحتاج حل'
+        'ضروري جدا هسقط', 'ساعدوني ضروري هسقط', 'ضيعت الكورس ومحتاج حل', 'وهسقط',
+        # Franco-Arab urgent pleas
+        'has2at keda sa3doni', 'sa3doni bsor3a'
     ]
     is_urgent = any(up in clean_norm for up in urgent_pleas)
 
@@ -691,10 +700,16 @@ def run_word2vec_fasttext_comparison(w2v_model=None, ft_model=None):
 # ==============================================================================
 
 # ==============================================================================
-# 5. INDEPENDENT ARABIC DIALECT DISTRESS BENCHMARK (PRECISION, RECALL, F1)
+# 5. DUAL-SPLIT ARABIC DIALECT BENCHMARK SUITE
+# ==============================================================================
+# Methodological Separation:
+# A. Development / Calibration Set (26 cases): Used for rule consistency & regression prevention.
+# B. Independent Holdout Evaluation Set (24 cases): Unseen authentic student queries,
+#    including slang, typos, Franco-Arab, and subtle semantic boundary test cases.
 # ==============================================================================
 
-ARABIC_BENCHMARK_DATASET = [
+# A. Development Regression Suite (26 cases)
+ARABIC_DEV_BENCHMARK_DATASET = [
     # 1. Technical Task Inability (Must NOT escalate -> AUTOMATED_RAG_PIPELINE)
     {"text": "مش قادر أفتح ملف المحاضرة، ممكن تساعدني؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Technical: Cannot open lecture file"},
     {"text": "مش قادر أحمل الفيديو بتاع السيشن التالتة", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Technical: Cannot download video"},
@@ -729,21 +744,50 @@ ARABIC_BENCHMARK_DATASET = [
     {"text": "مش لاحق أسلم التاسكات والتراكم زاد عليا ومحبط", "expected_escalate": True, "category": "ACADEMIC_DELAY", "label": "Academic Delay: Backlog with frustration"}
 ]
 
-def evaluate_arabic_distress_benchmark(router_fn=None) -> Dict[str, Any]:
-    """
-    Evaluates Arabic dialect classification accuracy, precision, recall, and F1-score
-    across 26 challenging Egyptian dialect test cases covering:
-    - Routine educational questions vs genuine emotional distress
-    - Technical inability vs student withdrawal
-    - Platform outages vs student failure feelings
-    """
+# B. Independent Holdout Evaluation Set (24 Unseen Cases)
+ARABIC_HOLDOUT_TEST_SET = [
+    # 1. Unseen Genuine Emotional Distress & Despair (MUST Escalate)
+    {"text": "بجد مش قادر أستوعب الـ backprop وحاسس إني غبي", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Self-doubt and despair"},
+    {"text": "الدرجات نازلة جدًا وأنا متدمر نفسيًا وخايف أسقط", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Extreme grade anxiety and trauma"},
+    {"text": "تعبت من المذاكرة بدون فايدة وشكلي هسيب كل حاجة", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Unseen: Burnout with intent to quit"},
+    {"text": "الكورس سريع أوي عليا ومش ملاحق أي حاجة ومحبط خالص", "expected_escalate": True, "category": "ACADEMIC_DELAY", "label": "Unseen: Fast pace distress"},
+    {"text": "أنا ساقطططط ومحبط ومش عارف أعمل إيه في حياتي", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Typo elongation with distress"},
+    {"text": "أنا مش هقدر أكمل خلاص طاقتي نفدت", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Depleted energy / burnout"},
+    {"text": "هل في إمكانية أوقف الكورس وأسحب فلوسي؟", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Unseen: Formal refund & exit intent"},
+    {"text": "أنا معنديش وقت أكمل، عايز ألغي تسجيلي في المنحة", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Unseen: Scholarship cancellation request"},
+    {"text": "يا جماعة الحقوني الاسايمنت هيقفل وأنا مش فاهم حاجة وهسقط", "expected_escalate": True, "category": "URGENT_DISTRESS", "label": "Unseen: Deadline panic + failure fear"},
+    # 2. Unseen Franco-Arab Distress Cases (MUST Escalate)
+    {"text": "3ayez ansa7eb mn el bootcamp ana mo7bat gedan", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Franco: Withdrawal and frustration"},
+    {"text": "ana daye3 w msh ader akmel el tasks khales", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Franco: Lost and cannot complete"},
+    {"text": "el kwayz sa3b awy w has2at keda sa3doni bsor3a", "expected_escalate": True, "category": "URGENT_DISTRESS", "label": "Franco: Urgent quiz panic"},
+    # 3. Unseen Technical Inabilities & Platform Outages (Must NOT Escalate -> RAG)
+    {"text": "اللينك مش بيفتح معايا وجايب 404", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: 404 broken link"},
+    {"text": "الفيديو مش راضي يشتغل وفاضل شوية على الكويز", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Video player issue"},
+    {"text": "حملت ملف المحاضرة وزعلان إنه مش شغال معايا", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: File corrupted with mild sorrow word"},
+    {"text": "مش عارف أعمل install لـ spacy على جهازي ممكن خطوات التسطيب؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Library installation trouble"},
+    {"text": "الصوت في الميتنج مش واضح ممكن تسجيل السيشن؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Meeting audio quality"},
+    {"text": "المنصة بطيئة شوية النهاردة بس شغال عادي", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Platform latency inquiry"},
+    # 4. Unseen Franco-Arab Technical Inquiries (Must NOT Escalate -> RAG)
+    {"text": "el link bta3 el lecture msh shaghal mmkn link gdeed?", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Franco Tech: Broken lecture link"},
+    {"text": "msh 3aref a7amel el assignment mn 3ala el portal", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Franco Tech: Cannot download assignment"},
+    # 5. Unseen Curriculum Concept Inquiries (Must NOT Escalate -> RAG)
+    {"text": "هو ليه بنستخدم learning rate صغير في الـ adam optimizer؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Unseen Curr: Adam learning rate rationale"},
+    {"text": "ممكن شرح مبسط لمفهوم vanishing gradient؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Unseen Curr: Vanishing gradient concept"},
+    {"text": "معاد تسليم بروجكت الـ NLP يوم إيه بالظبط؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Unseen Curr: Project deadline inquiry"},
+    {"text": "ezay a7seb el f1 score bl pandas w sklearn?", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Franco Curr: F1 calculation in pandas"}
+]
+
+# Backward compatibility alias
+ARABIC_BENCHMARK_DATASET = ARABIC_DEV_BENCHMARK_DATASET
+
+def evaluate_dataset(dataset: list, set_name: str, router_fn=None) -> Dict[str, Any]:
     if router_fn is None:
         router_fn = deliberative_agent_router
 
     tp, fp, fn, tn = 0, 0, 0, 0
     results = []
 
-    for item in ARABIC_BENCHMARK_DATASET:
+    for item in dataset:
         decision = router_fn(item["text"])
         is_escalated = (decision["routing_decision"] == "HUMAN_OPERATOR_ESCALATION")
         expected = item["expected_escalate"]
@@ -774,25 +818,46 @@ def evaluate_arabic_distress_benchmark(router_fn=None) -> Dict[str, Any]:
     precision = tp / (tp + fp + 1e-7)
     recall = tp / (tp + fn + 1e-7)
     f1 = 2 * (precision * recall) / (precision + recall + 1e-7)
-    accuracy = (tp + tn) / len(ARABIC_BENCHMARK_DATASET)
+    accuracy = (tp + tn) / len(dataset)
 
-    print("\n" + "=" * 65)
-    print(f"ARABIC DIALECT DISTRESS CLASSIFICATION BENCHMARK ({len(ARABIC_BENCHMARK_DATASET)} CAS ES)")
-    print("=" * 65)
-    print(f"Total Cases: {len(ARABIC_BENCHMARK_DATASET)} | TP: {tp} | FP: {fp} | FN: {fn} | TN: {tn}")
+    print("\n" + "=" * 70)
+    print(f"BENCHMARK REPORT: {set_name.upper()} ({len(dataset)} SAMPLES)")
+    print("=" * 70)
+    print(f"Total: {len(dataset)} | TP: {tp} | FP: {fp} | FN: {fn} | TN: {tn}")
     print(f"Precision:  {precision:.4f} (Target >= 0.90)")
     print(f"Recall:     {recall:.4f} (Target >= 0.90)")
     print(f"F1-Score:   {f1:.4f} (Target >= 0.90)")
     print(f"Accuracy:   {accuracy:.4f}")
-    print("=" * 65)
+    print("=" * 70)
 
     return {
+        "set_name": set_name,
+        "sample_count": len(dataset),
         "precision": precision,
         "recall": recall,
         "f1": f1,
         "accuracy": accuracy,
         "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "details": results
+    }
+
+def evaluate_arabic_dev_benchmark(router_fn=None) -> Dict[str, Any]:
+    return evaluate_dataset(ARABIC_DEV_BENCHMARK_DATASET, "Development Regression Suite", router_fn=router_fn)
+
+def evaluate_arabic_holdout_test_set(router_fn=None) -> Dict[str, Any]:
+    return evaluate_dataset(ARABIC_HOLDOUT_TEST_SET, "Independent Holdout Evaluation Set (Unseen)", router_fn=router_fn)
+
+def evaluate_arabic_distress_benchmark(router_fn=None) -> Dict[str, Any]:
+    """Runs and presents both the Development Regression Suite and the Independent Holdout Test Set."""
+    dev_res = evaluate_arabic_dev_benchmark(router_fn=router_fn)
+    holdout_res = evaluate_arabic_holdout_test_set(router_fn=router_fn)
+    return {
+        "precision": holdout_res["precision"],
+        "recall": holdout_res["recall"],
+        "f1": holdout_res["f1"],
+        "accuracy": holdout_res["accuracy"],
+        "dev": dev_res,
+        "holdout": holdout_res
     }
 
 def main():

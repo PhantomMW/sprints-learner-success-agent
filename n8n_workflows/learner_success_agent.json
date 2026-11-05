@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 1. Ingest learner query and strictly validate payload\nconst body = $json.body || $json;\nconst query = (body.query_text || '').trim();\nconst learnerId = (body.learner_id || '').trim();\n\nif (!learnerId) {\n  throw new Error(\"Bad Request: 'learner_id' is required and cannot be blank or unassigned.\");\n}\nif (!query) {\n  throw new Error(\"Bad Request: 'query_text' cannot be blank or contain only whitespace.\");\n}\n\n// Correlation ID for distributed execution tracking\nconst correlationId = 'corr-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7);\n\nreturn {\n  learner_id: learnerId,\n  query_text: query,\n  cohort_city: body.cohort_city || 'Cairo',\n  correlation_id: correlationId,\n  received_at: new Date().toISOString()\n};"
+        "jsCode": "// 1. Ingest learner query and strictly validate payload\nconst body = $json.body || $json;\nconst query = (body.query_text || '').trim();\nconst learnerId = (body.learner_id || '').trim();\n\nif (!learnerId) {\n  throw new Error(\"Bad Request: 'learner_id' is required and cannot be blank or unassigned.\");\n}\nif (!query) {\n  throw new Error(\"Bad Request: 'query_text' cannot be blank or contain only whitespace.\");\n}\n\n// Distributed execution tracing and Idempotency Key\nconst correlationId = body.correlation_id || ('corr-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7));\nconst idempotencyKey = body.idempotency_key || ('idemp-' + correlationId);\n\nreturn {\n  learner_id: learnerId,\n  query_text: query,\n  cohort_city: body.cohort_city || 'Cairo',\n  correlation_id: correlationId,\n  idempotency_key: idempotencyKey,\n  received_at: new Date().toISOString()\n};"
       },
       "id": "node-parse-query",
       "name": "Parse & Validate Query",
@@ -37,13 +37,22 @@
         "url": "http://sprints-ai-api:8000/api/v1/analyze",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ learner_id: $json.learner_id, query_text: $json.query_text, correlation_id: $json.correlation_id }) }}",
+        "jsonBody": "={{ JSON.stringify({ learner_id: $json.learner_id, query_text: $json.query_text, correlation_id: $json.correlation_id, idempotency_key: $json.idempotency_key }) }}",
         "options": {
-          "timeout": 2200,
-          "retry": {
-            "maxTries": 2,
-            "waitBetweenTries": 150
-          }
+          "timeout": 2200
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{$json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{$json.idempotency_key}}"
+            }
+          ]
         }
       },
       "id": "node-sentiment-ner-router",
@@ -53,7 +62,10 @@
       "position": [
         680,
         320
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 150
     },
     {
       "parameters": {
@@ -82,13 +94,22 @@
         "url": "http://sprints-ai-api:8000/api/v1/tickets/escalate",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  learner_id: $json.learner_id,\n  query_text: $json.query_text,\n  module_id: ($json.extracted_modules && $json.extracted_modules.length > 0) ? $json.extracted_modules[0] : \"MOD-201\",\n  sentiment_polarity: $json.sentiment.polarity,\n  sentiment_subjectivity: $json.sentiment.subjectivity,\n  priority: $json.priority,\n  status: \"Pending_Human_Escalation\",\n  correlation_id: $json.correlation_id\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  learner_id: $json.learner_id,\n  query_text: $json.query_text,\n  module_id: ($json.extracted_modules && $json.extracted_modules.length > 0) ? $json.extracted_modules[0] : \"MOD-201\",\n  sentiment_polarity: $json.sentiment.polarity,\n  sentiment_subjectivity: $json.sentiment.subjectivity,\n  priority: $json.priority,\n  status: \"Pending_Human_Escalation\",\n  correlation_id: $json.correlation_id,\n  idempotency_key: $json.idempotency_key\n}) }}",
         "options": {
-          "timeout": 1500,
-          "retry": {
-            "maxTries": 2,
-            "waitBetweenTries": 150
-          }
+          "timeout": 1500
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Correlation-ID",
+              "value": "={{$json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{$json.idempotency_key}}"
+            }
+          ]
         }
       },
       "id": "node-persist-escalation-db",
@@ -98,11 +119,14 @@
       "position": [
         1160,
         200
-      ]
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 150
     },
     {
       "parameters": {
-        "jsCode": "// Prepare Escalate Response to Learner with strict DB persistence check\nconst prev = $('Analyze Sentiment, NER & Vector RAG').first().json;\nconst parseNode = $('Parse & Validate Query').first().json;\nconst dbResult = $json;\n\n// Ensure database actually recorded the escalation ticket\nconst isPersisted = Boolean(dbResult && dbResult.status === 'persisted' && dbResult.ticket_id);\nif (!isPersisted) {\n  throw new Error(\"Database escalation ticket persistence failed. Immediate manual mentor alert required.\");\n}\n\nreturn {\n  status: 'escalated',\n  ticket_id: dbResult.ticket_id,\n  learner_id: prev.learner_id,\n  correlation_id: parseNode.correlation_id || prev.correlation_id || ('corr-' + Date.now().toString(36)),\n  assigned_queue: prev.assigned_queue,\n  priority: prev.priority,\n  db_persisted: true,\n  sentiment: prev.sentiment,\n  response_message: prev.agent_response,\n  execution_latency_ms: prev.execution_latency_ms,\n  sla_met: prev.sla_met\n};"
+        "jsCode": "// Prepare Escalate Response to Learner with strict DB persistence check\nconst prev = $('Analyze Sentiment, NER & Vector RAG').first().json;\nconst parseNode = $('Parse & Validate Query').first().json;\nconst dbResult = $json;\n\n// Ensure database actually recorded the escalation ticket\nconst isPersisted = Boolean(dbResult && dbResult.status === 'persisted' && dbResult.ticket_id);\nif (!isPersisted) {\n  throw new Error(\"Database escalation ticket persistence failed. Immediate manual mentor alert required.\");\n}\n\nreturn {\n  status: 'escalated',\n  ticket_id: dbResult.ticket_id,\n  learner_id: prev.learner_id,\n  correlation_id: parseNode.correlation_id || prev.correlation_id || ('corr-' + Date.now().toString(36)),\n  idempotency_key: parseNode.idempotency_key || dbResult.idempotency_key || ('idemp-' + Date.now().toString(36)),\n  idempotent_deduplicated: Boolean(dbResult.idempotent_deduplicated),\n  assigned_queue: prev.assigned_queue,\n  priority: prev.priority,\n  db_persisted: true,\n  sentiment: prev.sentiment,\n  response_message: prev.agent_response,\n  execution_latency_ms: prev.execution_latency_ms,\n  sla_met: prev.sla_met\n};"
       },
       "id": "node-format-escalation-response",
       "name": "Format Escalation Response",
@@ -115,7 +139,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Prepare Automated Semantic Retrieval Response\nconst data = $json;\nconst parseNode = $('Parse & Validate Query').first().json;\n\nreturn {\n  status: 'resolved_auto',\n  ticket_id: 'TCK-AUTO-' + Date.now().toString().slice(-6),\n  learner_id: data.learner_id,\n  correlation_id: parseNode.correlation_id || data.correlation_id || ('corr-' + Date.now().toString(36)),\n  assigned_queue: data.assigned_queue,\n  priority: data.priority,\n  db_persisted: false,\n  extracted_modules: data.extracted_modules,\n  extracted_dates: data.extracted_dates,\n  retrieved_chunk: data.retrieved_chunk,\n  response_message: data.agent_response,\n  execution_latency_ms: data.execution_latency_ms,\n  sla_met: data.sla_met\n};"
+        "jsCode": "// Prepare Automated Semantic Retrieval Response\nconst data = $json;\nconst parseNode = $('Parse & Validate Query').first().json;\n\nreturn {\n  status: 'resolved_auto',\n  ticket_id: 'TCK-AUTO-' + Date.now().toString().slice(-6),\n  learner_id: data.learner_id,\n  correlation_id: parseNode.correlation_id || data.correlation_id || ('corr-' + Date.now().toString(36)),\n  idempotency_key: parseNode.idempotency_key || ('idemp-' + Date.now().toString(36)),\n  assigned_queue: data.assigned_queue,\n  priority: data.priority,\n  db_persisted: false,\n  extracted_modules: data.extracted_modules,\n  extracted_dates: data.extracted_dates,\n  retrieved_chunk: data.retrieved_chunk,\n  response_message: data.agent_response,\n  execution_latency_ms: data.execution_latency_ms,\n  sla_met: data.sla_met\n};"
       },
       "id": "node-format-rag-response",
       "name": "Format Automated RAG Response",
@@ -129,7 +153,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ {\n  status: $json.status,\n  learner_id: $json.learner_id,\n  ticket_id: $json.ticket_id,\n  correlation_id: $json.correlation_id,\n  priority: $json.priority,\n  assigned_queue: $json.assigned_queue,\n  db_persisted: $json.db_persisted,\n  response_message: $json.response_message,\n  execution_latency_ms: $json.execution_latency_ms,\n  sla_compliance: $json.sla_met ? 'PASSED (<3.5s)' : 'EXCEEDED'\n} }}",
+        "responseBody": "={{ {\n  status: $json.status,\n  learner_id: $json.learner_id,\n  ticket_id: $json.ticket_id,\n  correlation_id: $json.correlation_id,\n  idempotency_key: $json.idempotency_key,\n  priority: $json.priority,\n  assigned_queue: $json.assigned_queue,\n  db_persisted: $json.db_persisted,\n  idempotent_deduplicated: $json.idempotent_deduplicated || false,\n  response_message: $json.response_message,\n  execution_latency_ms: $json.execution_latency_ms,\n  sla_compliance: $json.sla_met ? 'PASSED (<3.5s)' : 'EXCEEDED'\n} }}",
         "options": {}
       },
       "id": "node-respond-webhook",

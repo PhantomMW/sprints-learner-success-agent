@@ -36,8 +36,8 @@ requiredNodes.forEach(name => {
 });
 console.log(`   [PASS] All ${requiredNodes.length} required nodes present with valid positions and types.`);
 
-// 2. Validate Node Connections & Timeout Budgets
-console.log('\n2. Validating Connection Graph Routing & Timeout Budgets...');
+// 2. Validate Node Connections & Timeout Budgets & Native Retries
+console.log('\n2. Validating Connection Graph Routing, Timeout Budgets & Native Retries...');
 const conn = workflow.connections;
 assert(conn['HTTP Webhook Trigger'].main[0][0].node === 'Parse & Validate Query');
 assert(conn['Parse & Validate Query'].main[0][0].node === 'Analyze Sentiment, NER & Vector RAG');
@@ -49,13 +49,20 @@ assert(ifConns.length === 2, 'IF node must have 2 output branches');
 assert(ifConns[0][0].node === 'Persist Escalation to SQLite DB', 'Output 0 (True) must route to DB escalation');
 assert(ifConns[1][0].node === 'Format Automated RAG Response', 'Output 1 (False) must route to RAG response');
 
-// Timeout budgets
+// Timeout budgets and Native Node Retries (n8n root settings)
 const httpAnalysisNode = nodeMap.get('Analyze Sentiment, NER & Vector RAG');
 assert(httpAnalysisNode.parameters.options.timeout <= 2500, 'HTTP analysis node timeout must be budgeted <= 2500ms to guarantee <3500ms SLA');
+assert(httpAnalysisNode.retryOnFail === true, 'HTTP analysis node must have native retryOnFail enabled');
+assert(httpAnalysisNode.maxTries === 2, 'HTTP analysis node maxTries must equal 2');
+assert(httpAnalysisNode.waitBetweenTries === 150, 'HTTP analysis node waitBetweenTries must equal 150ms');
+
 const httpDbNode = nodeMap.get('Persist Escalation to SQLite DB');
 assert(httpDbNode.parameters.options.timeout <= 2000, 'HTTP DB node timeout must be budgeted <= 2000ms');
+assert(httpDbNode.retryOnFail === true, 'HTTP DB node must have native retryOnFail enabled');
+assert(httpDbNode.maxTries === 2, 'HTTP DB node maxTries must equal 2');
+assert(httpDbNode.waitBetweenTries === 150, 'HTTP DB node waitBetweenTries must equal 150ms');
 
-console.log('   [PASS] Connection graph & timeout budgets verified (headroom reserved for SLA < 3.5s).');
+console.log('   [PASS] Connection graph, timeout budgets, and native n8n retry policies verified.');
 
 // 3. Execute JS Code Node: Parse & Validate Query in Node.js VM
 console.log('\n3. Testing Code Node: Parse & Validate Query (node-parse-query)...');
@@ -92,7 +99,8 @@ assert(parsedResult.query_text.includes('مش فاهم'));
 assert.strictEqual(parsedResult.cohort_city, 'Alexandria');
 assert(parsedResult.received_at, 'Missing received_at timestamp');
 assert(parsedResult.correlation_id && parsedResult.correlation_id.startsWith('corr-'), 'Missing or invalid correlation_id');
-console.log('   [PASS] Successfully parsed complex text with correlation_id generation.');
+assert(parsedResult.idempotency_key && parsedResult.idempotency_key.startsWith('idemp-'), 'Missing or invalid idempotency_key');
+console.log('   [PASS] Successfully parsed complex text with correlation_id and idempotency_key generation.');
 
 // 3B. Rejection of missing learner_id
 assert.throws(() => {
@@ -128,7 +136,7 @@ const mockNodeAccessor = (nodeName) => {
   if (nodeName === 'Parse & Validate Query') {
     return {
       first: () => ({
-        json: { correlation_id: 'corr-test-12345', learner_id: 'LRN-1019' }
+        json: { correlation_id: 'corr-test-12345', idempotency_key: 'idemp-test-12345', learner_id: 'LRN-1019' }
       })
     };
   }
@@ -152,7 +160,8 @@ const mockNodeAccessor = (nodeName) => {
 const validEscContext = {
   $json: {
     status: 'persisted',
-    ticket_id: 'TCK-ESC-048291'
+    ticket_id: 'TCK-ESC-048291',
+    idempotent_deduplicated: false
   },
   $: mockNodeAccessor
 };
@@ -161,8 +170,9 @@ assert.strictEqual(escResult.status, 'escalated');
 assert.strictEqual(escResult.ticket_id, 'TCK-ESC-048291');
 assert.strictEqual(escResult.db_persisted, true);
 assert.strictEqual(escResult.correlation_id, 'corr-test-12345');
+assert.strictEqual(escResult.idempotency_key, 'idemp-test-12345');
 assert.strictEqual(escResult.sla_met, true);
-console.log('   [PASS] Valid persistence verified with correlation_id tracking.');
+console.log('   [PASS] Valid persistence verified with correlation_id and idempotency_key tracking.');
 
 // 5B. Failure when DB did not persist (Fake fallback prevented)
 const failedDbContext = {
@@ -198,8 +208,9 @@ assert.strictEqual(ragResult.status, 'resolved_auto');
 assert(ragResult.ticket_id.startsWith('TCK-AUTO-'));
 assert.strictEqual(ragResult.db_persisted, false);
 assert.strictEqual(ragResult.correlation_id, 'corr-test-12345');
+assert.strictEqual(ragResult.idempotency_key, 'idemp-test-12345');
 assert.strictEqual(ragResult.extracted_modules[0], 'MOD-101');
-console.log('   [PASS] Automated RAG response successfully generated with chunk metadata & correlation_id.');
+console.log('   [PASS] Automated RAG response successfully generated with chunk metadata, correlation_id & idempotency_key.');
 
 console.log('\n=================================================================');
 console.log('ALL N8N WORKFLOW NODE JAVASCRIPT & GRAPH TESTS PASSED 100%!');

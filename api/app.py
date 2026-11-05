@@ -20,7 +20,8 @@ import torch
 import numpy as np
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, HTTPException, status
+import uuid
+from fastapi import FastAPI, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from gensim.models import Word2Vec
 
@@ -155,8 +156,26 @@ def resolve_module_id(mod_input: Optional[str], cur: sqlite3.Cursor) -> Optional
     row = cur.fetchone()
     return row['module_id'] if row else None
 
+def ensure_db_schema():
+    """Idempotently ensures SQLite database columns and indexes exist."""
+    try:
+        with get_db_session() as conn:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(support_tickets);")
+            cols = [c[1] for c in cur.fetchall()]
+            if "correlation_id" not in cols:
+                cur.execute("ALTER TABLE support_tickets ADD COLUMN correlation_id VARCHAR(64);")
+            if "idempotency_key" not in cols:
+                cur.execute("ALTER TABLE support_tickets ADD COLUMN idempotency_key VARCHAR(64);")
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_idempotency ON support_tickets(idempotency_key);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_correlation ON support_tickets(correlation_id);")
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Database schema auto-migration notice: {e}")
+
 @app.on_event("startup")
 def load_all_models():
+    ensure_db_schema()
     print("Pre-loading NLP pipelines, Word2Vec, and PyTorch checkpoints...")
     models_dir = os.path.join(project_root, 'models')
     
@@ -208,6 +227,8 @@ class LearnerQueryRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1001")
     query_text: str = Field(..., min_length=3, max_length=1500, example="I am struggling with PyTorch autograd tensors.")
     risk_level: Optional[str] = Field("Low", example="Low")
+    correlation_id: Optional[str] = Field(None, example="corr-12345")
+    idempotency_key: Optional[str] = Field(None, example="idemp-12345")
 
     @validator("query_text")
     def validate_query_not_empty(cls, v):
@@ -223,6 +244,8 @@ class TicketEscalationRequest(BaseModel):
     sentiment_subjectivity: float = Field(0.70, ge=0.0, le=1.0, example=0.70)
     priority: str = Field("Critical", example="Critical")
     status: str = Field("Pending_Human_Escalation", example="Pending_Human_Escalation")
+    correlation_id: Optional[str] = Field(None, example="corr-12345")
+    idempotency_key: Optional[str] = Field(None, example="idemp-12345")
 
     @validator("priority")
     def validate_priority(cls, v):
@@ -240,6 +263,7 @@ class TicketEscalationRequest(BaseModel):
 
 class RiskPredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
+    correlation_id: Optional[str] = Field(None, example="corr-12345")
     cohort_city: Optional[str] = Field(None, example="Cairo")
     week_1_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=65.0)
     week_2_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=58.0)
@@ -249,6 +273,7 @@ class RiskPredictionRequest(BaseModel):
 
 class EarlyRiskPredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
+    correlation_id: Optional[str] = Field(None, example="corr-12345")
     cohort_city: Optional[str] = Field(None, example="Cairo")
     week_1_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=65.0)
     week_2_quiz: Optional[float] = Field(None, ge=0.0, le=100.0, example=58.0)
@@ -256,6 +281,7 @@ class EarlyRiskPredictionRequest(BaseModel):
 
 class SequencePredictionRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1001")
+    correlation_id: Optional[str] = Field(None, example="corr-12345")
     quiz_scores: List[float] = Field(..., min_items=5, max_items=5, example=[85.0, 80.0, 75.0, 70.0, 60.0])
 
     @validator("quiz_scores")
@@ -276,13 +302,21 @@ def healthcheck():
     }
 
 @app.post("/api/v1/analyze")
-def analyze_learner_query(req: LearnerQueryRequest):
+def analyze_learner_query(
+    req: LearnerQueryRequest,
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
+    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key")
+):
     """
     Sub-second endpoint called directly by the n8n Webhook / HTTP node.
     Performs sentiment analysis, spaCy NER extraction, deliberative routing,
     and true Semantic Vector RAG via Word2Vec Cosine Similarity.
     """
     start_time = time.time()
+    corr_id = req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
+    idemp_key = req.idempotency_key or idempotency_key_header or f"idemp-{corr_id}"
+
+    logger.info(f"[{corr_id}] Received query analysis for learner {req.learner_id} (idempotency_key: {idemp_key})")
     
     # Deliberative agent routing with Semantic Vector RAG
     routing_result = deliberative_agent_router(
@@ -295,6 +329,8 @@ def analyze_learner_query(req: LearnerQueryRequest):
     execution_latency_ms = round((time.time() - start_time) * 1000, 2)
     
     return {
+        "correlation_id": corr_id,
+        "idempotency_key": idemp_key,
         "learner_id": req.learner_id,
         "query_text": req.query_text,
         "routing_decision": routing_result["routing_decision"],
@@ -312,14 +348,21 @@ def analyze_learner_query(req: LearnerQueryRequest):
     }
 
 @app.post("/api/v1/tickets/escalate")
-def escalate_ticket_to_db(req: TicketEscalationRequest):
+def escalate_ticket_to_db(
+    req: TicketEscalationRequest,
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
+    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key")
+):
     """
     Persistent escalation endpoint: logs escalated tickets directly into
     the SQLite relational database (support_tickets table).
     Strictly verifies learner existence (returns 404 Not Found if missing).
     Resolves module keywords to valid foreign keys in course_modules table.
+    Guarantees strict idempotency via Idempotency-Key & database UNIQUE constraint.
     """
     start_time = time.time()
+    corr_id = req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
+    idemp_key = req.idempotency_key or idempotency_key_header
     ticket_id = f"TCK-ESC-{int(time.time()*1000) % 1000000:06d}"
     
     resolved_mod = None
@@ -339,36 +382,67 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
             # Map module ID to valid course_modules foreign key or None
             resolved_mod = resolve_module_id(req.module_id, cur)
 
-            # Idempotency & Anti-duplicate check:
-            # Prevents duplicate ticket creation if the exact same request is retried
-            cur.execute("""
-                SELECT ticket_id, status, priority, created_at 
-                FROM support_tickets 
-                WHERE learner_id = ? AND query_text = ? AND status = 'Pending_Human_Escalation'
-                ORDER BY created_at DESC LIMIT 1
-            """, (req.learner_id, req.query_text))
-            existing_ticket = cur.fetchone()
-            if existing_ticket:
-                logger.info(f"Idempotent deduplication: Existing pending ticket {existing_ticket['ticket_id']} returned for learner {req.learner_id}.")
-                return {
-                    "status": "persisted",
-                    "ticket_id": existing_ticket['ticket_id'],
-                    "persisted_to_db": True,
-                    "mapped_module_id": resolved_mod,
-                    "db_record_status": existing_ticket['status'],
-                    "module_id": resolved_mod,
-                    "priority": existing_ticket['priority'],
-                    "idempotent_deduplicated": True,
-                    "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
-                    "sla_met": True
-                }
+            # 1. Primary Idempotency Check: Dedicated Idempotency-Key
+            if idemp_key:
+                cur.execute("""
+                    SELECT ticket_id, learner_id, module_id, status, priority, correlation_id, idempotency_key, created_at 
+                    FROM support_tickets 
+                    WHERE idempotency_key = ?
+                    LIMIT 1
+                """, (idemp_key,))
+                existing_key_ticket = cur.fetchone()
+                if existing_key_ticket:
+                    logger.info(f"[{corr_id}] Idempotency key match: Existing ticket {existing_key_ticket['ticket_id']} returned for key {idemp_key}.")
+                    return {
+                        "status": "persisted",
+                        "ticket_id": existing_key_ticket['ticket_id'],
+                        "learner_id": existing_key_ticket['learner_id'],
+                        "module_id": existing_key_ticket['module_id'],
+                        "db_record_status": existing_key_ticket['status'],
+                        "priority": existing_key_ticket['priority'],
+                        "correlation_id": existing_key_ticket['correlation_id'] or corr_id,
+                        "idempotency_key": existing_key_ticket['idempotency_key'],
+                        "persisted_to_db": True,
+                        "idempotent_deduplicated": True,
+                        "message": "Idempotent request recognized; existing ticket returned without duplicate creation.",
+                        "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
+                        "sla_met": True
+                    }
 
+            # 2. Secondary Deduplication Check: Same learner, same query text, pending status (only when NO explicit key is provided)
+            else:
+                cur.execute("""
+                    SELECT ticket_id, status, priority, created_at, correlation_id, idempotency_key 
+                    FROM support_tickets 
+                    WHERE learner_id = ? AND query_text = ? AND status = 'Pending_Human_Escalation'
+                    ORDER BY created_at DESC LIMIT 1
+                """, (req.learner_id, req.query_text))
+                existing_ticket = cur.fetchone()
+                if existing_ticket:
+                    logger.info(f"[{corr_id}] Pending ticket deduplication: Existing pending ticket {existing_ticket['ticket_id']} returned for learner {req.learner_id}.")
+                    return {
+                        "status": "persisted",
+                        "ticket_id": existing_ticket['ticket_id'],
+                        "learner_id": req.learner_id,
+                        "module_id": resolved_mod,
+                        "db_record_status": existing_ticket['status'],
+                        "priority": existing_ticket['priority'],
+                        "correlation_id": existing_ticket['correlation_id'] or corr_id,
+                        "idempotency_key": existing_ticket['idempotency_key'],
+                        "persisted_to_db": True,
+                        "idempotent_deduplicated": True,
+                        "message": "Duplicate pending request recognized; existing ticket returned.",
+                        "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
+                        "sla_met": True
+                    }
+
+            # 3. Insert fresh escalation ticket
             cur.execute("""
                 INSERT INTO support_tickets (
                     ticket_id, learner_id, module_id, query_text,
                     sentiment_polarity, sentiment_subjectivity,
-                    status, priority, escalation_flag, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                    status, priority, escalation_flag, correlation_id, idempotency_key, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 ticket_id,
                 req.learner_id,
@@ -377,11 +451,48 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
                 req.sentiment_polarity,
                 req.sentiment_subjectivity,
                 req.status,
-                req.priority
+                req.priority,
+                corr_id,
+                idemp_key
             ))
             conn.commit()
     except HTTPException:
         raise
+    except sqlite3.IntegrityError as ie:
+        # Handle concurrent race condition on idempotency_key UNIQUE constraint
+        if idemp_key and "idempotency_key" in str(ie).lower():
+            logger.info(f"[{corr_id}] Concurrent race caught by UNIQUE constraint for key {idemp_key}. Fetching winning record.")
+            try:
+                with get_db_session() as conn_dup:
+                    cur_dup = conn_dup.cursor()
+                    cur_dup.execute("""
+                        SELECT ticket_id, learner_id, module_id, status, priority, correlation_id, idempotency_key 
+                        FROM support_tickets WHERE idempotency_key = ?
+                    """, (idemp_key,))
+                    winning = cur_dup.fetchone()
+                    if winning:
+                        return {
+                            "status": "persisted",
+                            "ticket_id": winning['ticket_id'],
+                            "learner_id": winning['learner_id'],
+                            "module_id": winning['module_id'],
+                            "db_record_status": winning['status'],
+                            "priority": winning['priority'],
+                            "correlation_id": winning['correlation_id'] or corr_id,
+                            "idempotency_key": winning['idempotency_key'],
+                            "persisted_to_db": True,
+                            "idempotent_deduplicated": True,
+                            "message": "Concurrent idempotent request safely deduplicated via database unique constraint.",
+                            "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
+                            "sla_met": True
+                        }
+            except Exception as fe:
+                logger.error(f"Error fetching concurrent winner: {fe}")
+        logger.error(f"Integrity error during escalation write for learner {req.learner_id}: {ie}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database escalation write integrity error: {str(ie)}"
+        )
     except Exception as e:
         logger.error(f"Escalation write failed for learner {req.learner_id}: {e}", exc_info=True)
         raise HTTPException(
@@ -390,6 +501,7 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
         )
         
     execution_latency_ms = round((time.time() - start_time) * 1000, 2)
+    logger.info(f"[{corr_id}] Successfully persisted new escalation ticket {ticket_id} for learner {req.learner_id} (idempotency_key: {idemp_key}).")
     return {
         "status": "persisted",
         "ticket_id": ticket_id,
@@ -397,12 +509,17 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
         "module_id": resolved_mod,
         "db_record_status": req.status,
         "priority": req.priority,
+        "correlation_id": corr_id,
+        "idempotency_key": idemp_key,
+        "persisted_to_db": True,
+        "idempotent_deduplicated": False,
         "message": "Escalation ticket persisted successfully into relational database with referential integrity verified.",
-        "execution_latency_ms": execution_latency_ms
+        "execution_latency_ms": execution_latency_ms,
+        "sla_met": True
     }
 
 @app.post("/api/v1/predict_risk")
-def predict_learner_risk(req: RiskPredictionRequest):
+def predict_learner_risk(req: RiskPredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")):
     """
     Sprint 2: Evaluates a student's structured quiz profile using the PyTorch MLP.
     Supports both Experiment A (Early Risk W1-W3) and Experiment B (Full Trajectory W1-W5).
@@ -472,11 +589,12 @@ def predict_learner_risk(req: RiskPredictionRequest):
         "flagged_for_intervention": is_high_risk,
         "decision_threshold": round(threshold, 2),
         "score_delta": round(float(score_delta), 1),
+        "correlation_id": req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}",
         "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
     }
 
 @app.post("/api/v1/predict_risk_early")
-def predict_learner_risk_early(req: EarlyRiskPredictionRequest):
+def predict_learner_risk_early(req: EarlyRiskPredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")):
     """
     Sprint 2 (Experiment A): Dedicated Proactive Early Risk Classifier.
     Predicts dropout risk at Week 3 before learner attrition occurs.
@@ -526,11 +644,12 @@ def predict_learner_risk_early(req: EarlyRiskPredictionRequest):
         "decision_threshold": round(threshold, 2),
         "score_delta_w1_w3": round(float(delta_w1_w3), 1),
         "early_mean_score": round(float(early_mean), 1),
+        "correlation_id": req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}",
         "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
     }
 
 @app.post("/api/v1/predict_sequence")
-def predict_sequence_trajectory(req: SequencePredictionRequest):
+def predict_sequence_trajectory(req: SequencePredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")):
     """
     Sprint 3: Feeds 5-week quiz vector into PyTorch LSTM to forecast capstone outcome.
     Utilizes Forget Gate dynamics and the Constant Error Carousel (Cell State).
@@ -553,6 +672,7 @@ def predict_sequence_trajectory(req: SequencePredictionRequest):
         "predicted_capstone_score": round(predicted_capstone, 2),
         "forecast_status": "Projected Pass" if predicted_capstone >= 60.0 else "Projected Fail (At Risk)",
         "recurrent_mechanism": "LSTM Forget Gate & Cell State (Constant Error Carousel)",
+        "correlation_id": req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}",
         "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
     }
 
