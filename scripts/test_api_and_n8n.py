@@ -22,10 +22,10 @@ api_dir = os.path.join(project_root, 'api')
 if api_dir not in sys.path:
     sys.path.append(api_dir)
 
-from app import app, load_all_models
+from app import app, load_all_models, SPRINTS_API_KEY
 
 load_all_models()
-client = TestClient(app, headers={"X-API-Key": "sprints-capstone-secret-api-key-2026"})
+client = TestClient(app, headers={"X-API-Key": SPRINTS_API_KEY})
 
 print("\n" + "="*65)
 print("TESTING SPRINTS FASTAPI BACKEND & N8N AGENT ROUTING")

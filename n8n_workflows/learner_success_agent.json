@@ -54,7 +54,7 @@
             },
             {
               "name": "X-API-Key",
-              "value": "={{$env.FASTAPI_API_KEY || 'sprints-capstone-secret-api-key-2026'}}"
+              "value": "={{$env.FASTAPI_API_KEY}}"
             }
           ]
         }
@@ -115,7 +115,7 @@
             },
             {
               "name": "X-API-Key",
-              "value": "={{$env.FASTAPI_API_KEY || 'sprints-capstone-secret-api-key-2026'}}"
+              "value": "={{$env.FASTAPI_API_KEY}}"
             }
           ]
         }

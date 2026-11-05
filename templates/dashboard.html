@@ -401,7 +401,7 @@
         <!-- Security API Key Config -->
         <div class="input-group input-group-sm" style="max-width: 260px;" title="مفتاح الأمان والمصادقة المعتمد للـ API">
           <span class="input-group-text bg-dark border-secondary text-muted"><i class="fa-solid fa-shield-halved"></i></span>
-          <input type="password" id="apiKeyInput" class="form-control bg-dark border-secondary text-light num-en" value="sprints-capstone-secret-api-key-2026" placeholder="X-API-Key">
+          <input type="password" id="apiKeyInput" class="form-control bg-dark border-secondary text-light num-en" value="{{SESSION_API_KEY}}" placeholder="X-API-Key">
           <button class="btn btn-outline-secondary" type="button" onclick="toggleApiKey()" title="عرض / إخفاء المفتاح">
             <i class="fa-solid fa-eye" id="eyeIcon"></i>
           </button>

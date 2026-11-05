@@ -88,19 +88,48 @@ from contextlib import contextmanager
 
 logger = logging.getLogger("sprints_agent")
 
+import secrets
+
+def _load_env():
+    """Loads environment variables from root .env file if present."""
+    env_file = os.path.join(project_root, '.env')
+    if os.path.exists(env_file):
+        with open(env_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+
+_load_env()
+
 # ==============================================================================
 # API SECURITY, AUTHENTICATION & RATE LIMITING
 # ==============================================================================
-SPRINTS_API_KEY = os.environ.get("SPRINTS_API_KEY", "sprints-capstone-secret-api-key-2026")
+# Mandatory Cryptographic API Key: Fail fast if unconfigured
+SPRINTS_API_KEY = os.environ.get("SPRINTS_API_KEY")
+if not SPRINTS_API_KEY:
+    raise RuntimeError(
+        "FATAL SECURITY CONFIGURATION: Mandatory environment variable 'SPRINTS_API_KEY' is not set! "
+        "Please provide SPRINTS_API_KEY in your local .env file or host environment before starting the service."
+    )
+
 api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120"))
+TRUSTED_PROXIES = {p.strip() for p in os.environ.get("TRUSTED_PROXIES", "127.0.0.1,::1,localhost").split(",") if p.strip()} | {"testclient", "127.0.0.1", "localhost", "::1"}
+
 _rate_limit_history: Dict[str, List[float]] = defaultdict(list)
 
 def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool:
     """
     In-memory sliding window rate limiter per client IP address.
     Prunes timestamps older than 60 seconds and verifies request count < limit.
+    Architecture note: For horizontally scaled multi-worker / multi-node deployments,
+    integrate a centralized Redis token bucket via REDIS_URL.
     """
     now = time.time()
     cutoff = now - 60.0
@@ -111,11 +140,17 @@ def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool
     return True
 
 async def rate_limiter_dependency(request: Request):
-    """Enforces sliding window rate limiting per IP address."""
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    """
+    Enforces sliding window rate limiting per IP address.
+    Protects against IP spoofing: X-Forwarded-For is only trusted if the immediate
+    peer IP belongs to configured TRUSTED_PROXIES.
+    """
+    client_host = request.client.host if request.client else "127.0.0.1"
     forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
+    if forwarded and (client_host in TRUSTED_PROXIES or "127.0.0.1" in client_host):
         client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = client_host
     
     if not check_rate_limit(client_ip):
         logger.warning(f"Rate limit exceeded for client {client_ip} (> {RATE_LIMIT_PER_MINUTE} req/min)")
@@ -135,6 +170,7 @@ async def verify_api_key(
     Accepts credentials via:
     1. Header 'X-API-Key: <key>'
     2. Header 'Authorization: Bearer <key>'
+    Uses constant-time comparison (secrets.compare_digest) to prevent timing attacks.
     """
     await rate_limiter_dependency(request)
     
@@ -146,7 +182,7 @@ async def verify_api_key(
         elif len(parts) == 1:
             token = parts[0]
             
-    if not token or token != SPRINTS_API_KEY:
+    if not token or not secrets.compare_digest(token, SPRINTS_API_KEY):
         logger.warning(f"Unauthorized API request from {request.client.host if request.client else 'unknown'}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -413,7 +449,8 @@ def live_demo_dashboard():
     dashboard_html_path = os.path.join(project_root, "templates", "dashboard.html")
     if os.path.exists(dashboard_html_path):
         with open(dashboard_html_path, "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read(), status_code=200)
+            html = f.read().replace("{{SESSION_API_KEY}}", SPRINTS_API_KEY)
+            return HTMLResponse(content=html, status_code=200)
     return HTMLResponse(content="<h2>Sprints AI Agent Live Backend Running</h2><p>Visit <a href='/docs'>/docs</a> for Swagger documentation.</p>", status_code=200)
 
 

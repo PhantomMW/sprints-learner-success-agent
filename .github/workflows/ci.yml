@@ -11,6 +11,9 @@ jobs:
   test-and-validate:
     name: Build, Test & Verify
     runs-on: ubuntu-latest
+    env:
+      SPRINTS_API_KEY: ${{ secrets.SPRINTS_API_KEY || 'sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a' }}
+      FASTAPI_API_KEY: ${{ secrets.SPRINTS_API_KEY || 'sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a' }}
 
     steps:
       - name: Checkout Repository
@@ -90,7 +93,7 @@ jobs:
           timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://localhost:5678 | grep -E "200|302|401"; do sleep 3; done'
           sleep 5
           echo "Verifying live webhook readiness and full end-to-end execution (HTTP 200 OK)..."
-          timeout 45 bash -c 'until [ $(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"What is relational SQL?\"}") -eq 200 ]; do sleep 2; done'
+          timeout 60 bash -c 'until [ $(curl -s -o /tmp/webhook_probe.json -w "%{http_code}" -X POST http://localhost:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"What is relational SQL?\"}") -eq 200 ]; do echo "Awaiting webhook readiness..."; sleep 3; done'
           docker compose ps
 
       - name: Live n8n Docker Webhook Integration Tests (Dual Branch Routing & SQLite Persistence)

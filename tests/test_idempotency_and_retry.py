@@ -31,11 +31,11 @@ DB_PATH = os.path.join(REPO_ROOT, 'database', 'sprints_learners.db')
 if API_DIR not in sys.path:
     sys.path.append(API_DIR)
 
-from app import app, get_db_connection, ensure_db_schema
+from app import app, get_db_connection, ensure_db_schema, SPRINTS_API_KEY
 
 @pytest.fixture(scope="module")
 def client():
-    with TestClient(app, headers={"X-API-Key": "sprints-capstone-secret-api-key-2026"}) as c:
+    with TestClient(app, headers={"X-API-Key": SPRINTS_API_KEY}) as c:
         yield c
 
 class TestIdempotencyAndRetry:
