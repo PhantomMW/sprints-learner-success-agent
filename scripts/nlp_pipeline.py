@@ -177,13 +177,16 @@ def analyze_sentiment(text: str) -> Dict[str, Any]:
     subj = round(blob.sentiment.subjectivity, 4)
 
     # Support Egyptian Arabic dialect distress keywords
-    arabic_negative_lexicon = [
-        'مش فاهم', 'مش فاهمه', 'مش فاهمين', 'محبط', 'محبطه', 'مخنوق', 'مخنوقه', 
-        'مش عارف', 'مش عارفه', 'مش قادر', 'مش قادره', 'مش لاحق', 'مش لاحقه', 
-        'فاشل', 'فاشله', 'ساقط', 'ساقطه', 'منسحب', 'منسحبه', 'انسحاب', 'هسيب',
-        'صعب جدا', 'معقد جدا', 'مش نافع', 'كارثة', 'ضايع', 'ضايعه'
+    # Specifically targets genuine emotional distress, failure, and withdrawal
+    # while leaving routine questions (e.g. asking for explanations) to automated RAG
+    arabic_severe_distress = [
+        'محبط', 'محبطه', 'محبطين', 'مخنوق', 'مخنوقه', 'يائس', 'يائسه',
+        'ضايع', 'ضايعه', 'مش قادر اكمل', 'مش قادره اكمل', 'مش هقدر اكمل', 'مش قادر', 'مش قادره',
+        'مش لاحق', 'مش لاحقه', 'هسقط', 'ساقط', 'ساقطه', 'فاشل', 'فاشله',
+        'منسحب', 'منسحبه', 'انسحاب', 'هسيب الكورس', 'هسيب', 'عايز انسحب', 'عايزه انسحب',
+        'عايز مساعدة ضروري', 'عايزه مساعدة ضروري', 'ضروري جدا', 'الحقوني', 'كارثة'
     ]
-    if any(term in text for term in arabic_negative_lexicon):
+    if any(term in text for term in arabic_severe_distress):
         if pol >= -0.15:
             pol = -0.55
             subj = max(subj, 0.75)
@@ -316,8 +319,15 @@ def deliberative_agent_router(query_text: str, nlp_model=None, w2v_model=None, r
     entities = extract_entities(query_text, nlp_model=nlp_model)
     
     urgency_keywords = [
-        'quitting', 'drop out', 'dropping out', 'withdraw', 'lost laptop', 'worst experience', 'give up', 'urgent', 'cant keep up', "can't keep up",
-        'مش فاهم', 'مش فاهمه', 'محبط', 'محبطه', 'مخنوق', 'ضروري', 'عايز مساعدة', 'عايزه مساعدة', 'منسحب', 'انسحاب', 'هسيب', 'مش قادر', 'مش قادره', 'مش لاحق', 'مش عارف', 'ضايع'
+        'quitting', 'drop out', 'dropping out', 'withdraw', 'withdrawing',
+        'lost laptop', 'worst experience', 'give up', 'urgent', 'cant keep up', "can't keep up",
+        'failing', 'fall behind', 'falling behind',
+        # Egyptian Arabic Severe Distress & Withdrawal phrases (avoids generic question words like 'مش فاهم')
+        'محبط', 'محبطه', 'مخنوق', 'مخنوقه', 'يائس', 'يائسه', 'ضايع', 'ضايعه',
+        'مش قادر اكمل', 'مش قادره اكمل', 'مش هقدر اكمل', 'مش قادر', 'مش قادره',
+        'مش لاحق', 'مش لاحقه', 'هسقط', 'ساقط', 'ساقطه', 'فاشل', 'فاشله',
+        'منسحب', 'منسحبه', 'انسحاب', 'هسيب الكورس', 'هسيب', 'عايز انسحب', 'عايزه انسحب',
+        'عايز مساعدة ضروري', 'عايزه مساعدة ضروري', 'ضروري جدا', 'الحقوني'
     ]
     has_urgency = any(kw in query_text.lower() for kw in urgency_keywords)
     polarity = sentiment['polarity']

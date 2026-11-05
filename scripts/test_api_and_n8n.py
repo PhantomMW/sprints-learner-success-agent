@@ -54,7 +54,7 @@ assert resp_neutral.status_code == 200
 assert data_neutral["routing_decision"] == "AUTOMATED_RAG_PIPELINE"
 assert data_neutral["execution_latency_ms"] < 3500.0
 
-# 3. Test Negative / Frustrated Query (Deliberative Human Escalation)
+# 3. Test Negative / Frustrated Query (Deliberative Human Escalation - English)
 negative_payload = {
     "learner_id": "LRN-1019",
     "query_text": "This is the worst experience, none of the code from the notebook works. Thinking of quitting."
@@ -62,7 +62,7 @@ negative_payload = {
 t0 = time.time()
 resp_neg = client.post("/api/v1/analyze", json=negative_payload)
 lat_neg = (time.time() - t0) * 1000
-print(f"\n3. Frustrated Query Escalation ({lat_neg:.2f}ms):")
+print(f"\n3. Frustrated Query Escalation - English ({lat_neg:.2f}ms):")
 data_neg = resp_neg.json()
 print("   Routing Decision:", data_neg["routing_decision"])
 print("   Assigned Queue:", data_neg["assigned_queue"])
@@ -71,6 +71,43 @@ assert resp_neg.status_code == 200
 assert data_neg["routing_decision"] == "HUMAN_OPERATOR_ESCALATION"
 assert data_neg["priority"] == "Critical"
 assert data_neg["execution_latency_ms"] < 3500.0
+assert lat_neg < 3500.0, f"SLA breached: {lat_neg:.2f}ms >= 3500ms"
+
+# 3B. Test Pure Egyptian Arabic Distress Query (Deliberative Human Escalation - Arabic)
+ar_distress_payload = {
+    "learner_id": "LRN-1019",
+    "query_text": "أنا مش فاهم PyTorch خالص ومحبط جداً ومش قادر أكمل وعايز مساعدة ضروري"
+}
+t0 = time.time()
+resp_ar_distress = client.post("/api/v1/analyze", json=ar_distress_payload)
+lat_ar_distress = (time.time() - t0) * 1000
+print(f"\n3B. Frustrated Query Escalation - Egyptian Arabic ({lat_ar_distress:.2f}ms):")
+data_ar_distress = resp_ar_distress.json()
+print("   Routing Decision:", data_ar_distress["routing_decision"])
+print("   Assigned Queue:", data_ar_distress["assigned_queue"])
+print("   Priority:", data_ar_distress["priority"])
+assert resp_ar_distress.status_code == 200
+assert data_ar_distress["routing_decision"] == "HUMAN_OPERATOR_ESCALATION"
+assert data_ar_distress["priority"] == "Critical"
+assert data_ar_distress["execution_latency_ms"] < 3500.0
+assert lat_ar_distress < 3500.0, f"SLA breached: {lat_ar_distress:.2f}ms >= 3500ms"
+
+# 3C. Test Routine Arabic Educational Inquiry (Must Route to Automated RAG, NOT Escalate)
+ar_routine_payload = {
+    "learner_id": "LRN-1002",
+    "query_text": "ممكن توضيح لمعنى autograd وطريقة حساب gradient في PyTorch؟"
+}
+t0 = time.time()
+resp_ar_routine = client.post("/api/v1/analyze", json=ar_routine_payload)
+lat_ar_routine = (time.time() - t0) * 1000
+print(f"\n3C. Routine Arabic Curriculum Inquiry - Automated RAG ({lat_ar_routine:.2f}ms):")
+data_ar_routine = resp_ar_routine.json()
+print("   Routing Decision:", data_ar_routine["routing_decision"])
+print("   Assigned Queue:", data_ar_routine["assigned_queue"])
+assert resp_ar_routine.status_code == 200
+assert data_ar_routine["routing_decision"] == "AUTOMATED_RAG_PIPELINE"
+assert data_ar_routine["execution_latency_ms"] < 3500.0
+assert lat_ar_routine < 3500.0, f"SLA breached: {lat_ar_routine:.2f}ms >= 3500ms"
 
 # 4. Test Persistent Escalation Ticket Logging to SQLite DB
 esc_payload = {

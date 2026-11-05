@@ -1,15 +1,18 @@
 import os
 import zipfile
+import shutil
 
 base_dir = r"C:\Users\mw851\sprints-learner-success-agent"
-zip_path = os.path.join(base_dir, "sprints_capstone_submission.zip")
+repo_zip_path = os.path.join(base_dir, "sprints_capstone_submission.zip")
+desktop_dir = os.path.expanduser(r"~\Desktop")
+desktop_zip_path = os.path.join(desktop_dir, "sprints_capstone_submission.zip")
 
 print("Building sprints_capstone_submission.zip...")
 
-include_dirs = ['data', 'database', 'models', 'notebooks', 'n8n_workflows', 'api', 'scripts', 'docs', 'demo']
-include_files = ['README.md', 'requirements.txt', 'Dockerfile', 'docker-compose.yml', 'Demo_Walkthrough.mp4']
+include_dirs = ['data', 'database', 'models', 'notebooks', 'n8n_workflows', 'api', 'scripts', 'docs', 'demo', 'tests', '.github']
+include_files = ['README.md', 'requirements.txt', 'Dockerfile', 'docker-compose.yml', 'Demo_Walkthrough.mp4', '.gitignore']
 
-with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zipf:
+with zipfile.ZipFile(repo_zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zipf:
     for d in include_dirs:
         dir_full = os.path.join(base_dir, d)
         if os.path.exists(dir_full):
@@ -28,5 +31,10 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zi
         if os.path.exists(full_p):
             zipf.write(full_p, f)
 
-size_mb = os.path.getsize(zip_path) / (1024 * 1024)
-print(f"Created {zip_path} ({size_mb:.2f} MB)")
+size_mb = os.path.getsize(repo_zip_path) / (1024 * 1024)
+print(f"Created {repo_zip_path} ({size_mb:.2f} MB)")
+
+print(f"Copying to Desktop: {desktop_zip_path}...")
+shutil.copyfile(repo_zip_path, desktop_zip_path)
+desktop_size_mb = os.path.getsize(desktop_zip_path) / (1024 * 1024)
+print(f"Desktop delivery verified: {desktop_zip_path} ({desktop_size_mb:.2f} MB)")

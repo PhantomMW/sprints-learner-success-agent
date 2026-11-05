@@ -62,16 +62,15 @@ jobs:
           timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://localhost:5678 | grep -E "200|302|401"; do sleep 3; done'
           sleep 5
           echo "Importing n8n workflow..."
-          docker exec sprints_n8n_orchestrator n8n import:workflow --input=/workflows/learner_success_agent.json || true
+          docker exec sprints_n8n_orchestrator n8n import:workflow --input=/workflows/learner_success_agent.json
           echo "Publishing n8n workflow..."
-          docker exec sprints_n8n_orchestrator n8n publish:workflow --id=sprints-capstone-n8n-workflow || true
-          docker exec sprints_n8n_orchestrator sh -c 'n8n export:workflow --all --output=/tmp/wfs.json && node -e "const fs=require(\"fs\"); const {execSync}=require(\"child_process\"); const d=JSON.parse(fs.readFileSync(\"/tmp/wfs.json\",\"utf8\")); (Array.isArray(d)?d:[d]).forEach(w => { if(w.id){ try{execSync(\"n8n publish:workflow --id=\" + w.id, {stdio:\"ignore\"})}catch(e){} try{execSync(\"n8n update:workflow --id=\" + w.id + \" --active=true\", {stdio:\"ignore\"})}catch(e){} } })"' || true
+          docker exec sprints_n8n_orchestrator n8n publish:workflow --id=sprints-capstone-n8n-workflow
           echo "Restarting n8n container to register webhooks from database into router..."
           docker restart sprints_n8n_orchestrator
           timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://localhost:5678 | grep -E "200|302|401"; do sleep 3; done'
           sleep 5
           echo "Verifying live webhook readiness..."
-          timeout 30 bash -c 'until [ $(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"ping\"}") -ne 404 ]; do sleep 2; done' || true
+          timeout 30 bash -c 'until [ $(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"ping\"}") -ne 404 ]; do sleep 2; done'
           docker compose ps
 
       - name: Live n8n Docker Webhook Integration Tests (Dual Branch Routing & SQLite Persistence)

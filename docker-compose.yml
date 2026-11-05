@@ -13,18 +13,16 @@ services:
     restart: unless-stopped
 
   sprints-n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.47.2
     container_name: sprints_n8n_orchestrator
     ports:
       - "5678:5678"
     environment:
-      - N8N_BASIC_AUTH_ACTIVE=false
       - N8N_HOST=localhost
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
       - FASTAPI_BASE_URL=http://sprints-ai-api:8000
-      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - GENERIC_TIMEZONE=Africa/Cairo
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false

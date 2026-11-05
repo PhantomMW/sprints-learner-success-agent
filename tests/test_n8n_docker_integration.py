@@ -213,6 +213,7 @@ def main():
     print(f"   Status Code: {resp_rag.status_code}")
     print(f"   Roundtrip Latency: {lat_rag:.2f}ms (SLA < 3500ms)")
     assert resp_rag.status_code == 200, f"Expected 200 OK, got {resp_rag.status_code}: {resp_rag.text}"
+    assert lat_rag < 3500.0, f"Path A response latency SLA breached: {lat_rag:.2f}ms >= 3500.0ms"
     data_rag = resp_rag.json()
     print("   Routing Decision:", data_rag.get("status"))
     print("   Ticket ID:", data_rag.get("ticket_id"))
@@ -231,41 +232,78 @@ def main():
     assert row_rag is None, "Automated RAG ticket should NOT be persisted in SQLite support_tickets!"
     print("   [VERIFIED] SQLite DB check: Zero unwanted records created for automated response.")
 
-    # PATH B: Distressed Query (Deliberative Mentor Escalation)
-    print("\n--- Test Path B: Distressed Query (Urgent Human Escalation) ---")
-    esc_payload = {
+    # PATH B: Pure Egyptian Arabic Distress Query (Human Mentor Escalation - Arabic Only)
+    print("\n--- Test Path B: Pure Egyptian Arabic Distress Query (Human Mentor Escalation) ---")
+    esc_payload_ar = {
         "learner_id": "LRN-1019",
-        "query_text": "أنا مش فاهم PyTorch خالص ومحبط جداً وعايز مساعدة ضروري - urgent mentor escalation needed",
+        "query_text": "أنا مش فاهم PyTorch خالص ومحبط جداً ومش قادر أكمل وعايز مساعدة ضروري",
         "cohort_city": "Alexandria"
     }
     t0 = time.time()
-    resp_esc = requests.post(webhook_url, json=esc_payload, timeout=12)
-    lat_esc = (time.time() - t0) * 1000
+    resp_ar = requests.post(webhook_url, json=esc_payload_ar, timeout=12)
+    lat_ar = (time.time() - t0) * 1000
 
-    print(f"   Status Code: {resp_esc.status_code}")
-    print(f"   Roundtrip Latency: {lat_esc:.2f}ms (SLA < 3500ms)")
-    assert resp_esc.status_code == 200, f"Expected 200 OK, got {resp_esc.status_code}: {resp_esc.text}"
-    data_esc = resp_esc.json()
-    print("   Routing Decision:", data_esc.get("status"))
-    print("   Ticket ID:", data_esc.get("ticket_id"))
-    print("   DB Persisted Flag:", data_esc.get("db_persisted"))
+    print(f"   Status Code: {resp_ar.status_code}")
+    print(f"   Roundtrip Latency: {lat_ar:.2f}ms (SLA < 3500ms)")
+    assert resp_ar.status_code == 200, f"Expected 200 OK, got {resp_ar.status_code}: {resp_ar.text}"
+    assert lat_ar < 3500.0, f"Path B (Arabic Distress) SLA breached: {lat_ar:.2f}ms >= 3500.0ms"
+    data_ar = resp_ar.json()
+    print("   Routing Decision:", data_ar.get("status"))
+    print("   Ticket ID:", data_ar.get("ticket_id"))
+    print("   DB Persisted Flag:", data_ar.get("db_persisted"))
 
-    assert data_esc.get("status") == "escalated", f"Expected 'escalated', got {data_esc.get('status')}"
-    assert data_esc.get("db_persisted") is True, "Escalated ticket must be marked db_persisted = True"
-    assert str(data_esc.get("ticket_id")).startswith("TCK-ESC-"), "Ticket ID must follow TCK-ESC prefix"
+    assert data_ar.get("status") == "escalated", f"Expected 'escalated', got {data_ar.get('status')}"
+    assert data_ar.get("db_persisted") is True, "Escalated ticket must be marked db_persisted = True"
+    assert str(data_ar.get("ticket_id")).startswith("TCK-ESC-"), "Ticket ID must follow TCK-ESC prefix"
 
     # Verify persistent SQLite record
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT ticket_id, learner_id, priority, status FROM support_tickets WHERE ticket_id = ?", (data_esc.get("ticket_id"),))
-    row_esc = cur.fetchone()
+    cur.execute("SELECT ticket_id, learner_id, priority, status FROM support_tickets WHERE ticket_id = ?", (data_ar.get("ticket_id"),))
+    row_ar = cur.fetchone()
     conn.close()
-    assert row_esc is not None, f"Escalation ticket {data_esc.get('ticket_id')} was not found in SQLite DB!"
-    print(f"   [VERIFIED] SQLite DB Record Confirmed: {row_esc}")
+    assert row_ar is not None, f"Escalation ticket {data_ar.get('ticket_id')} was not found in SQLite DB!"
+    print(f"   [VERIFIED] SQLite DB Record Confirmed: {row_ar}")
+
+    # PATH C: Pure English Distress Query (Human Mentor Escalation - English Only)
+    print("\n--- Test Path C: Pure English Distress Query (Human Mentor Escalation) ---")
+    esc_payload_en = {
+        "learner_id": "LRN-1005",
+        "query_text": "I am completely failing this module, cannot keep up, and want to drop out urgently",
+        "cohort_city": "Cairo"
+    }
+    t0 = time.time()
+    resp_en = requests.post(webhook_url, json=esc_payload_en, timeout=12)
+    lat_en = (time.time() - t0) * 1000
+
+    print(f"   Status Code: {resp_en.status_code}")
+    print(f"   Roundtrip Latency: {lat_en:.2f}ms (SLA < 3500ms)")
+    assert resp_en.status_code == 200, f"Expected 200 OK, got {resp_en.status_code}: {resp_en.text}"
+    assert lat_en < 3500.0, f"Path C (English Distress) SLA breached: {lat_en:.2f}ms >= 3500.0ms"
+    data_en = resp_en.json()
+    print("   Routing Decision:", data_en.get("status"))
+    print("   Ticket ID:", data_en.get("ticket_id"))
+    print("   DB Persisted Flag:", data_en.get("db_persisted"))
+
+    assert data_en.get("status") == "escalated", f"Expected 'escalated', got {data_en.get('status')}"
+    assert data_en.get("db_persisted") is True, "Escalated ticket must be marked db_persisted = True"
+    assert str(data_en.get("ticket_id")).startswith("TCK-ESC-"), "Ticket ID must follow TCK-ESC prefix"
+
+    # Verify persistent SQLite record
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT ticket_id, learner_id, priority, status FROM support_tickets WHERE ticket_id = ?", (data_en.get("ticket_id"),))
+    row_en = cur.fetchone()
+    conn.close()
+    assert row_en is not None, f"Escalation ticket {data_en.get('ticket_id')} was not found in SQLite DB!"
+    print(f"   [VERIFIED] SQLite DB Record Confirmed: {row_en}")
+
+    max_lat = max(lat_rag, lat_ar, lat_en)
+    assert max_lat < 3500.0, f"Overall SLA breached: {max_lat:.2f}ms >= 3500.0ms"
 
     print("\n" + "=" * 65)
-    print("ALL N8N DOCKER WEBHOOK ROUTING & SQLITE PERSISTENCE TESTS PASSED!")
-    print(f"Max Latency Observed: {max(lat_rag, lat_esc):.2f}ms (SLA < 3500ms STRICTLY MET)")
+    print("ALL 3 N8N DOCKER WEBHOOK ROUTING & SQLITE PERSISTENCE TESTS PASSED!")
+    print(f"Max Latency Observed: {max_lat:.2f}ms (Strict SLA < 3500ms 100% SATISFIED)")
     print("=" * 65)
 
 if __name__ == "__main__":
