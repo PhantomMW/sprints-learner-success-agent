@@ -79,6 +79,7 @@ CREATE TABLE support_tickets (
     escalation_flag BOOLEAN DEFAULT 0,
     correlation_id VARCHAR(64),
     idempotency_key VARCHAR(64) UNIQUE,
+    payload_hash VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     resolved_at TIMESTAMP,
     FOREIGN KEY (learner_id) REFERENCES learners(learner_id) ON DELETE CASCADE,

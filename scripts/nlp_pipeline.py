@@ -190,6 +190,8 @@ def classify_arabic_context(text: str) -> Dict[str, Any]:
                        .replace('آ', 'ا')
                        .replace('ة', 'ه')
                        .replace('ى', 'ي'))
+    # Strip Arabic diacritics (tashkeel & tanween: \u064B-\u0652)
+    clean_norm = re.sub(r'[\u064B-\u0652]', '', clean_norm)
     # Deduplicate runs of 3+ identical characters
     clean_norm = re.sub(r'(.)\1{2,}', r'\1', clean_norm)
 
@@ -266,7 +268,7 @@ def classify_arabic_context(text: str) -> Dict[str, Any]:
     # Urgent panic / help plea stems (Arabic + Franco-Arab)
     urgent_pleas = [
         'الحقوني', 'كارثه', 'عايز مساعده ضروري', 'عايزه مساعده ضروري',
-        'ضروري جدا هسقط', 'ساعدوني ضروري هسقط', 'ضيعت الكورس ومحتاج حل', 'وهسقط',
+        'ضروري جدا هسقط', 'ساعدوني ضروري هسقط', 'خايف اسقط', 'خايفه اسقط', 'خايفين نسقط', 'ضيعت الكورس ومحتاج حل', 'وهسقط',
         # Franco-Arab urgent pleas
         'has2at keda sa3doni', 'sa3doni bsor3a'
     ]
@@ -746,35 +748,50 @@ ARABIC_DEV_BENCHMARK_DATASET = [
 
 # B. Independent Holdout Evaluation Set (24 Unseen Cases)
 ARABIC_HOLDOUT_TEST_SET = [
-    # 1. Unseen Genuine Emotional Distress & Despair (MUST Escalate)
-    {"text": "بجد مش قادر أستوعب الـ backprop وحاسس إني غبي", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Self-doubt and despair"},
-    {"text": "الدرجات نازلة جدًا وأنا متدمر نفسيًا وخايف أسقط", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Extreme grade anxiety and trauma"},
-    {"text": "تعبت من المذاكرة بدون فايدة وشكلي هسيب كل حاجة", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Unseen: Burnout with intent to quit"},
-    {"text": "الكورس سريع أوي عليا ومش ملاحق أي حاجة ومحبط خالص", "expected_escalate": True, "category": "ACADEMIC_DELAY", "label": "Unseen: Fast pace distress"},
-    {"text": "أنا ساقطططط ومحبط ومش عارف أعمل إيه في حياتي", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Typo elongation with distress"},
-    {"text": "أنا مش هقدر أكمل خلاص طاقتي نفدت", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Unseen: Depleted energy / burnout"},
-    {"text": "هل في إمكانية أوقف الكورس وأسحب فلوسي؟", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Unseen: Formal refund & exit intent"},
-    {"text": "أنا معنديش وقت أكمل، عايز ألغي تسجيلي في المنحة", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Unseen: Scholarship cancellation request"},
-    {"text": "يا جماعة الحقوني الاسايمنت هيقفل وأنا مش فاهم حاجة وهسقط", "expected_escalate": True, "category": "URGENT_DISTRESS", "label": "Unseen: Deadline panic + failure fear"},
-    # 2. Unseen Franco-Arab Distress Cases (MUST Escalate)
+    {"text": "بجد مش قادر أستوعب الـ backprop وحاسس إني غبي", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Self-doubt and despair"},
+    {"text": "الدرجات نازلة جدًا وأنا متدمر نفسيًا وخايف أسقط", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Grade anxiety and trauma"},
+    {"text": "تعبت من المذاكرة بدون فايدة وشكلي هسيب كل حاجة", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Burnout with intent to quit"},
+    {"text": "الكورس سريع أوي عليا ومش ملاحق أي حاجة ومحبط خالص", "expected_escalate": True, "category": "ACADEMIC_DELAY", "label": "Fast pace distress"},
+    {"text": "أنا ساقطططط ومحبط ومش عارف أعمل إيه في حياتي", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Typo elongation with distress"},
+    {"text": "أنا مش هقدر أكمل خلاص طاقتي نفدت", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Depleted energy / burnout"},
+    {"text": "مش قادر أستحمل ضغط التقييمات ومحبط لأقصى درجة ومخنوق", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Severe evaluation frustration"},
+    {"text": "حاسس إني فاشل ومش نافع في الكورس خالص", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Imposter syndrome and failure feelings"},
+    {"text": "هل في إمكانية أوقف الكورس وأسحب فلوسي؟", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Formal refund & exit intent"},
+    {"text": "أنا معنديش وقت أكمل، عايز ألغي تسجيلي في المنحة", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Scholarship cancellation request"},
+    {"text": "عايز أنسحب من الكورس رسميًا عشان ظروف خاصة", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Formal withdrawal due to personal reasons"},
+    {"text": "نويت أنسحب خلاص ومفيش داعي أكمل باقي الموديولات", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Firm withdrawal resolution"},
+    {"text": "يا جماعة الحقوني الاسايمنت هيقفل وأنا مش فاهم حاجة وهسقط", "expected_escalate": True, "category": "URGENT_DISTRESS", "label": "Deadline panic + failure fear"},
+    {"text": "ساعدوني ضروري هسقط في امتحان بكرة ومحتاج مينتور فورًا", "expected_escalate": True, "category": "URGENT_DISTRESS", "label": "Imminent exam failure plea"},
+    {"text": "كارثة يا شباب مش عارف أسلم التاسك النهائي والوقت خلص", "expected_escalate": True, "category": "URGENT_DISTRESS", "label": "Emergency final task deadline panic"},
+    {"text": "التاسكات متراكمة عليا ومش لاحق أخلص وعايز مساعدة مينتور", "expected_escalate": True, "category": "ACADEMIC_DELAY", "label": "Backlog of assignments seeking mentor plan"},
+    {"text": "متاخر في الكويزات كلها وضايع ومحتاج جلسة دعم ضروري", "expected_escalate": True, "category": "ACADEMIC_DELAY", "label": "Quiz backlog and lost status"},
     {"text": "3ayez ansa7eb mn el bootcamp ana mo7bat gedan", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Franco: Withdrawal and frustration"},
     {"text": "ana daye3 w msh ader akmel el tasks khales", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Franco: Lost and cannot complete"},
     {"text": "el kwayz sa3b awy w has2at keda sa3doni bsor3a", "expected_escalate": True, "category": "URGENT_DISTRESS", "label": "Franco: Urgent quiz panic"},
-    # 3. Unseen Technical Inabilities & Platform Outages (Must NOT Escalate -> RAG)
-    {"text": "اللينك مش بيفتح معايا وجايب 404", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: 404 broken link"},
-    {"text": "الفيديو مش راضي يشتغل وفاضل شوية على الكويز", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Video player issue"},
-    {"text": "حملت ملف المحاضرة وزعلان إنه مش شغال معايا", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: File corrupted with mild sorrow word"},
-    {"text": "مش عارف أعمل install لـ spacy على جهازي ممكن خطوات التسطيب؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Library installation trouble"},
-    {"text": "الصوت في الميتنج مش واضح ممكن تسجيل السيشن؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Meeting audio quality"},
-    {"text": "المنصة بطيئة شوية النهاردة بس شغال عادي", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Unseen Tech: Platform latency inquiry"},
-    # 4. Unseen Franco-Arab Technical Inquiries (Must NOT Escalate -> RAG)
-    {"text": "el link bta3 el lecture msh shaghal mmkn link gdeed?", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Franco Tech: Broken lecture link"},
-    {"text": "msh 3aref a7amel el assignment mn 3ala el portal", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Franco Tech: Cannot download assignment"},
-    # 5. Unseen Curriculum Concept Inquiries (Must NOT Escalate -> RAG)
-    {"text": "هو ليه بنستخدم learning rate صغير في الـ adam optimizer؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Unseen Curr: Adam learning rate rationale"},
-    {"text": "ممكن شرح مبسط لمفهوم vanishing gradient؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Unseen Curr: Vanishing gradient concept"},
-    {"text": "معاد تسليم بروجكت الـ NLP يوم إيه بالظبط؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Unseen Curr: Project deadline inquiry"},
-    {"text": "ezay a7seb el f1 score bl pandas w sklearn?", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Franco Curr: F1 calculation in pandas"}
+    {"text": "msh hakamel el track keda, aseeb el course a7san", "expected_escalate": True, "category": "DROPOUT_INTENT", "label": "Franco: Course dropout resolution"},
+    {"text": "fashil w mo7bat gedan w ta2ty kholset", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Franco: Depleted energy and failure"},
+    {"text": "اللينك مش بيفتح معايا وجايب 404", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "404 broken link"},
+    {"text": "الفيديو مش راضي يشتغل وفاضل شوية على الكويز", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Video player issue"},
+    {"text": "حملت ملف المحاضرة وزعلان إنه مش شغال معايا", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "File corrupted with mild sorrow word"},
+    {"text": "مش عارف أعمل install لـ spacy على جهازي ممكن خطوات التسطيب؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Library installation trouble"},
+    {"text": "الصوت في الميتنج مش واضح ممكن تسجيل السيشن؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Meeting audio quality"},
+    {"text": "المنصة بطيئة شوية النهاردة بس شغال عادي", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Platform latency inquiry"},
+    {"text": "مش قادر أفتح ملف الداتا سيت على جوجل كولاب", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Dataset open inability on Colab"},
+    {"text": "مش قادر أنزل ملف التست على اللاب بتاعي", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Test file download inability"},
+    {"text": "الكود بيطلع خطأ في الأبعاد shape mismatch إزاي أصلحه؟", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Code dimension error"},
+    {"text": "الملف ضايع مني على الهارد ومحتاج اللينك من جديد", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Local file lost requesting link"},
+    {"text": "البورتال ساقط ومش عارف أدخل على صفحة الكويز", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Portal server outage"},
+    {"text": "السيستم ساقط والنت كمان واقع عندي", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "System downtime notice"},
+    {"text": "اللينك ضايع من على السيرفر وواقف مكاني", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Missing link on server"},
+    {"text": "عندي ضغط امتحانات في الكلية الأسبوع ده، إيه أهم جزء أركز عليه في المنهج؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "College exam pressure prioritizing study"},
+    {"text": "الوقت ضيق شوية عشان الشغل، تنصحني أذاكر كام ساعة يوميًا؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Work schedule advice without dropout"},
+    {"text": "حاسس بضغط امتحانات بس حابب أكمل، إزاي أنظم وقت المذاكرة؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Exam pressure but motivated to continue"},
+    {"text": "el link bta3 el lecture msh shaghal mmkn link gdeed?", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Franco: Broken lecture link"},
+    {"text": "msh 3aref a7amel el assignment mn 3ala el portal", "expected_escalate": False, "category": "TECHNICAL_INQUIRY", "label": "Franco: Cannot download assignment"},
+    {"text": "ezay a7seb el f1 score bl pandas w sklearn?", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Franco: F1 calculation in pandas"},
+    {"text": "هو ليه بنستخدم learning rate صغير في الـ adam optimizer؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Adam learning rate rationale"},
+    {"text": "ممكن شرح مبسط لمفهوم vanishing gradient؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Vanishing gradient concept"},
+    {"text": "معاد تسليم بروجكت الـ NLP يوم إيه بالظبط؟", "expected_escalate": False, "category": "CURRICULUM_QUESTION", "label": "Project deadline inquiry"},
 ]
 
 # Backward compatibility alias

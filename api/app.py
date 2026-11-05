@@ -21,6 +21,7 @@ import numpy as np
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
 import uuid
+import hashlib
 from fastapi import FastAPI, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from gensim.models import Word2Vec
@@ -156,22 +157,57 @@ def resolve_module_id(mod_input: Optional[str], cur: sqlite3.Cursor) -> Optional
     row = cur.fetchone()
     return row['module_id'] if row else None
 
-def ensure_db_schema():
-    """Idempotently ensures SQLite database columns and indexes exist."""
-    try:
-        with get_db_session() as conn:
-            cur = conn.cursor()
-            cur.execute("PRAGMA table_info(support_tickets);")
-            cols = [c[1] for c in cur.fetchall()]
-            if "correlation_id" not in cols:
-                cur.execute("ALTER TABLE support_tickets ADD COLUMN correlation_id VARCHAR(64);")
-            if "idempotency_key" not in cols:
-                cur.execute("ALTER TABLE support_tickets ADD COLUMN idempotency_key VARCHAR(64);")
-            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_idempotency ON support_tickets(idempotency_key);")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_correlation ON support_tickets(correlation_id);")
-            conn.commit()
-    except Exception as e:
-        logger.warning(f"Database schema auto-migration notice: {e}")
+def ensure_db_schema(conn: Optional[sqlite3.Connection] = None):
+    """
+    Executes SQLite database schema migrations and strictly verifies that
+    all required columns and indexes exist.
+    Fails fast with RuntimeError if migration or verification fails,
+    preventing application startup in an inconsistent state.
+    """
+    def _migrate(connection: sqlite3.Connection):
+        cur = connection.cursor()
+        cur.execute("PRAGMA table_info(support_tickets);")
+        existing_cols = [c[1] for c in cur.fetchall()]
+        if not existing_cols:
+            raise RuntimeError("Database migration error: 'support_tickets' table does not exist.")
+
+        # 1. Apply required column migrations
+        required_cols = {
+            "correlation_id": "VARCHAR(64)",
+            "idempotency_key": "VARCHAR(64)",
+            "payload_hash": "VARCHAR(64)"
+        }
+        for col_name, col_type in required_cols.items():
+            if col_name not in existing_cols:
+                cur.execute(f"ALTER TABLE support_tickets ADD COLUMN {col_name} {col_type};")
+                logger.info(f"Database migration: Added column '{col_name}' ({col_type}) to support_tickets.")
+
+        # 2. Apply index migrations
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_idempotency ON support_tickets(idempotency_key);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_correlation ON support_tickets(correlation_id);")
+        connection.commit()
+
+        # 3. Post-migration verification assertion
+        cur.execute("PRAGMA table_info(support_tickets);")
+        verified_cols = {c[1] for c in cur.fetchall()}
+        missing = [c for c in required_cols.keys() if c not in verified_cols]
+        if missing:
+            raise RuntimeError(f"Database schema verification failed: columns {missing} missing after migration.")
+
+        cur.execute("PRAGMA index_list(support_tickets);")
+        verified_indexes = {idx[1] for idx in cur.fetchall()}
+        required_indexes = ["idx_tickets_idempotency", "idx_tickets_correlation"]
+        missing_idx = [idx for idx in required_indexes if idx not in verified_indexes]
+        if missing_idx:
+            raise RuntimeError(f"Database schema verification failed: indexes {missing_idx} missing after migration.")
+
+        logger.info("Database schema migration & verification passed 100%.")
+
+    if conn is not None:
+        _migrate(conn)
+    else:
+        with get_db_session() as session_conn:
+            _migrate(session_conn)
 
 @app.on_event("startup")
 def load_all_models():
@@ -358,12 +394,14 @@ def escalate_ticket_to_db(
     the SQLite relational database (support_tickets table).
     Strictly verifies learner existence (returns 404 Not Found if missing).
     Resolves module keywords to valid foreign keys in course_modules table.
-    Guarantees strict idempotency via Idempotency-Key & database UNIQUE constraint.
+    Guarantees strict idempotency via Idempotency-Key, payload conflict detection,
+    database UNIQUE constraint, and collision-free UUID ticket IDs.
     """
     start_time = time.time()
     corr_id = req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
     idemp_key = req.idempotency_key or idempotency_key_header
-    ticket_id = f"TCK-ESC-{int(time.time()*1000) % 1000000:06d}"
+    ticket_id = f"TCK-ESC-{uuid.uuid4().hex[:12].upper()}"
+    payload_hash = hashlib.sha256(f"{req.learner_id}:{req.query_text}".encode('utf-8')).hexdigest()
     
     resolved_mod = None
     try:
@@ -385,14 +423,26 @@ def escalate_ticket_to_db(
             # 1. Primary Idempotency Check: Dedicated Idempotency-Key
             if idemp_key:
                 cur.execute("""
-                    SELECT ticket_id, learner_id, module_id, status, priority, correlation_id, idempotency_key, created_at 
+                    SELECT ticket_id, learner_id, module_id, query_text, status, priority, correlation_id, idempotency_key, payload_hash, created_at 
                     FROM support_tickets 
                     WHERE idempotency_key = ?
                     LIMIT 1
                 """, (idemp_key,))
                 existing_key_ticket = cur.fetchone()
                 if existing_key_ticket:
+                    # Idempotency Conflict Detection: Same key used with DIFFERENT payload!
+                    existing_hash = existing_key_ticket['payload_hash'] or hashlib.sha256(
+                        f"{existing_key_ticket['learner_id']}:{existing_key_ticket['query_text']}".encode('utf-8')
+                    ).hexdigest()
+                    if existing_hash != payload_hash:
+                        logger.warning(f"[{corr_id}] Idempotency key conflict: key '{idemp_key}' was previously used with a different payload!")
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Idempotency key collision: provided key '{idemp_key}' was already used with a different request payload."
+                        )
+
                     logger.info(f"[{corr_id}] Idempotency key match: Existing ticket {existing_key_ticket['ticket_id']} returned for key {idemp_key}.")
+                    exec_lat = round((time.time() - start_time) * 1000, 2)
                     return {
                         "status": "persisted",
                         "ticket_id": existing_key_ticket['ticket_id'],
@@ -402,11 +452,12 @@ def escalate_ticket_to_db(
                         "priority": existing_key_ticket['priority'],
                         "correlation_id": existing_key_ticket['correlation_id'] or corr_id,
                         "idempotency_key": existing_key_ticket['idempotency_key'],
+                        "payload_hash": payload_hash,
                         "persisted_to_db": True,
                         "idempotent_deduplicated": True,
                         "message": "Idempotent request recognized; existing ticket returned without duplicate creation.",
-                        "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
-                        "sla_met": True
+                        "execution_latency_ms": exec_lat,
+                        "sla_met": exec_lat < 3500.0
                     }
 
             # 2. Secondary Deduplication Check: Same learner, same query text, pending status (only when NO explicit key is provided)
@@ -420,6 +471,7 @@ def escalate_ticket_to_db(
                 existing_ticket = cur.fetchone()
                 if existing_ticket:
                     logger.info(f"[{corr_id}] Pending ticket deduplication: Existing pending ticket {existing_ticket['ticket_id']} returned for learner {req.learner_id}.")
+                    exec_lat = round((time.time() - start_time) * 1000, 2)
                     return {
                         "status": "persisted",
                         "ticket_id": existing_ticket['ticket_id'],
@@ -429,11 +481,12 @@ def escalate_ticket_to_db(
                         "priority": existing_ticket['priority'],
                         "correlation_id": existing_ticket['correlation_id'] or corr_id,
                         "idempotency_key": existing_ticket['idempotency_key'],
+                        "payload_hash": payload_hash,
                         "persisted_to_db": True,
                         "idempotent_deduplicated": True,
                         "message": "Duplicate pending request recognized; existing ticket returned.",
-                        "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
-                        "sla_met": True
+                        "execution_latency_ms": exec_lat,
+                        "sla_met": exec_lat < 3500.0
                     }
 
             # 3. Insert fresh escalation ticket
@@ -441,8 +494,8 @@ def escalate_ticket_to_db(
                 INSERT INTO support_tickets (
                     ticket_id, learner_id, module_id, query_text,
                     sentiment_polarity, sentiment_subjectivity,
-                    status, priority, escalation_flag, correlation_id, idempotency_key, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
+                    status, priority, escalation_flag, correlation_id, idempotency_key, payload_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 ticket_id,
                 req.learner_id,
@@ -453,7 +506,8 @@ def escalate_ticket_to_db(
                 req.status,
                 req.priority,
                 corr_id,
-                idemp_key
+                idemp_key,
+                payload_hash
             ))
             conn.commit()
     except HTTPException:
@@ -466,11 +520,20 @@ def escalate_ticket_to_db(
                 with get_db_session() as conn_dup:
                     cur_dup = conn_dup.cursor()
                     cur_dup.execute("""
-                        SELECT ticket_id, learner_id, module_id, status, priority, correlation_id, idempotency_key 
+                        SELECT ticket_id, learner_id, module_id, query_text, status, priority, correlation_id, idempotency_key, payload_hash 
                         FROM support_tickets WHERE idempotency_key = ?
                     """, (idemp_key,))
                     winning = cur_dup.fetchone()
                     if winning:
+                        winning_hash = winning['payload_hash'] or hashlib.sha256(
+                            f"{winning['learner_id']}:{winning['query_text']}".encode('utf-8')
+                        ).hexdigest()
+                        if winning_hash != payload_hash:
+                            raise HTTPException(
+                                status_code=status.HTTP_409_CONFLICT,
+                                detail=f"Idempotency key collision: provided key '{idemp_key}' was already used with a different request payload."
+                            )
+                        exec_lat = round((time.time() - start_time) * 1000, 2)
                         return {
                             "status": "persisted",
                             "ticket_id": winning['ticket_id'],
@@ -480,12 +543,15 @@ def escalate_ticket_to_db(
                             "priority": winning['priority'],
                             "correlation_id": winning['correlation_id'] or corr_id,
                             "idempotency_key": winning['idempotency_key'],
+                            "payload_hash": payload_hash,
                             "persisted_to_db": True,
                             "idempotent_deduplicated": True,
                             "message": "Concurrent idempotent request safely deduplicated via database unique constraint.",
-                            "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
-                            "sla_met": True
+                            "execution_latency_ms": exec_lat,
+                            "sla_met": exec_lat < 3500.0
                         }
+            except HTTPException:
+                raise
             except Exception as fe:
                 logger.error(f"Error fetching concurrent winner: {fe}")
         logger.error(f"Integrity error during escalation write for learner {req.learner_id}: {ie}", exc_info=True)
@@ -511,11 +577,12 @@ def escalate_ticket_to_db(
         "priority": req.priority,
         "correlation_id": corr_id,
         "idempotency_key": idemp_key,
+        "payload_hash": payload_hash,
         "persisted_to_db": True,
         "idempotent_deduplicated": False,
         "message": "Escalation ticket persisted successfully into relational database with referential integrity verified.",
         "execution_latency_ms": execution_latency_ms,
-        "sla_met": True
+        "sla_met": execution_latency_ms < 3500.0
     }
 
 @app.post("/api/v1/predict_risk")
@@ -590,7 +657,8 @@ def predict_learner_risk(req: RiskPredictionRequest, x_correlation_id: Optional[
         "decision_threshold": round(threshold, 2),
         "score_delta": round(float(score_delta), 1),
         "correlation_id": req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}",
-        "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
+        "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
+        "sla_met": round((time.time() - start_time) * 1000, 2) < 3500.0
     }
 
 @app.post("/api/v1/predict_risk_early")
@@ -645,7 +713,8 @@ def predict_learner_risk_early(req: EarlyRiskPredictionRequest, x_correlation_id
         "score_delta_w1_w3": round(float(delta_w1_w3), 1),
         "early_mean_score": round(float(early_mean), 1),
         "correlation_id": req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}",
-        "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
+        "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
+        "sla_met": round((time.time() - start_time) * 1000, 2) < 3500.0
     }
 
 @app.post("/api/v1/predict_sequence")
@@ -673,7 +742,8 @@ def predict_sequence_trajectory(req: SequencePredictionRequest, x_correlation_id
         "forecast_status": "Projected Pass" if predicted_capstone >= 60.0 else "Projected Fail (At Risk)",
         "recurrent_mechanism": "LSTM Forget Gate & Cell State (Constant Error Carousel)",
         "correlation_id": req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}",
-        "execution_latency_ms": round((time.time() - start_time) * 1000, 2)
+        "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
+        "sla_met": round((time.time() - start_time) * 1000, 2) < 3500.0
     }
 
 if __name__ == '__main__':
