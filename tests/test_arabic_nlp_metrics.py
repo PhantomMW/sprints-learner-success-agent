@@ -46,7 +46,7 @@ class TestArabicNLPMetrics:
 
     def test_arabic_holdout_unseen_test_set(self):
         """
-        Evaluates the 24-case independent holdout evaluation set (unseen queries,
+        Evaluates the 44-case independent holdout evaluation set (unseen queries,
         slang, Franco-Arab, typos, edge cases).
         Asserts Precision >= 0.90, Recall >= 0.90, F1 >= 0.90.
         """

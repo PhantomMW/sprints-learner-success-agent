@@ -27,7 +27,7 @@
       direction: rtl;
     }
     .navbar {
-      background: rgba(30, 41, 59, 0.8) !important;
+      background: rgba(30, 41, 59, 0.85) !important;
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
     }
@@ -42,6 +42,11 @@
       color: var(--success);
       border: 1px solid rgba(16, 185, 129, 0.4);
       animation: pulse 2s infinite;
+    }
+    .badge-offline {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.4);
     }
     @keyframes pulse {
       0% { opacity: 0.7; }
@@ -62,7 +67,7 @@
       color: var(--text-muted);
       border: none;
       font-weight: 600;
-      padding: 12px 24px;
+      padding: 12px 20px;
       border-radius: 10px;
       transition: all 0.2s;
     }
@@ -119,6 +124,11 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px;
+      animation: fadeIn 0.3s ease-in;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     .metric-stat {
       text-align: center;
@@ -137,15 +147,36 @@
 
   <!-- Top Navbar -->
   <nav class="navbar navbar-expand-lg sticky-top">
-    <div class="container">
+    <div class="container-fluid px-lg-4">
       <a class="navbar-brand d-flex align-items-center gap-2" href="#">
         <i class="fa-solid fa-graduation-cap fa-xl text-primary"></i>
         <span class="brand-title">Sprints AI Agent — Live Demo</span>
       </a>
-      <div class="d-flex align-items-center gap-3">
-        <span class="badge badge-live px-3 py-2"><i class="fa-solid fa-circle fa-2xs me-1"></i> خادم البث المباشر يعمل (Live Daemon)</span>
-        <a href="/docs" target="_blank" class="btn btn-outline-light btn-sm"><i class="fa-solid fa-book-open me-1"></i> Swagger API Docs</a>
-        <a href="https://github.com/PhantomMW/sprints-learner-success-agent" target="_blank" class="btn btn-outline-light btn-sm"><i class="fa-brands fa-github me-1"></i> GitHub Repo</a>
+
+      <button class="navbar-toggler text-light border-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+
+      <div class="collapse navbar-collapse mt-2 mt-lg-0 justify-content-between" id="navbarContent">
+        <div class="d-flex align-items-center gap-2 my-2 my-lg-0">
+          <span id="liveStatusBadge" class="badge badge-live px-3 py-2">
+            <i class="fa-solid fa-spinner fa-spin me-1"></i> جاري فحص حالة السيرفر...
+          </span>
+        </div>
+
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <!-- API Key Input for Auth Inspection -->
+          <div class="input-group input-group-sm" style="max-width: 320px;" title="مفتاح الـ API المعتمد (X-API-Key)">
+            <span class="input-group-text bg-dark border-secondary text-muted"><i class="fa-solid fa-key"></i></span>
+            <input type="password" id="apiKeyInput" class="form-control bg-dark border-secondary text-light" value="sprints-capstone-secret-api-key-2026" placeholder="X-API-Key">
+            <button class="btn btn-outline-secondary" type="button" onclick="toggleApiKeyVisibility()" title="إظهار / إخفاء المفتاح">
+              <i class="fa-solid fa-eye" id="eyeIcon"></i>
+            </button>
+          </div>
+
+          <a href="/docs" target="_blank" class="btn btn-outline-light btn-sm"><i class="fa-solid fa-book-open me-1"></i> Swagger API</a>
+          <a href="https://github.com/PhantomMW/sprints-learner-success-agent" target="_blank" class="btn btn-outline-light btn-sm"><i class="fa-brands fa-github me-1"></i> GitHub Repo</a>
+        </div>
       </div>
     </div>
   </nav>
@@ -154,8 +185,11 @@
     <!-- Header Banner -->
     <div class="glass-card p-4 mb-4 text-center">
       <h2 class="fw-bold mb-2">منظومة الذكاء الاصطناعي لدعم ومتابعة الطلاب</h2>
-      <p class="text-muted mb-0">ميكروسيرفيس استدلالي عالي السرعة يجمع بين تحليلات قواعد البيانات، والتعلم العميق التنبئي (MLP & LSTM)، ومحرك الـ NLP التداولي المدعوم بالـ RAG الدلالي.</p>
+      <p class="text-muted mb-0">ميكروسيرفيس استدلالي عالي الأمان والسرعة يجمع بين تحليلات قواعد البيانات، والتعلم العميق التنبئي (MLP & LSTM)، ومحرك الـ NLP التداولي المدعوم بالـ RAG الدلالي والمصادقة الصارمة (X-API-Key).</p>
     </div>
+
+    <!-- Global In-Page Alert Banner for 4xx / 5xx / Network Errors -->
+    <div id="globalAlertBanner" class="alert d-none shadow-sm" role="alert"></div>
 
     <!-- Main Navigation Tabs -->
     <ul class="nav nav-tabs justify-content-center mb-4" id="demoTabs" role="tablist">
@@ -169,7 +203,7 @@
         <button class="nav-link" id="lstm-tab" data-bs-toggle="tab" data-bs-target="#lstm-pane"><i class="fa-solid fa-chart-line me-2"></i> التنبؤ بمشروع التخرج (PyTorch LSTM)</button>
       </li>
       <li class="nav-item">
-        <button class="nav-link" id="health-tab" data-bs-toggle="tab" data-bs-target="#health-pane"><i class="fa-solid fa-server me-2"></i> صحة النظام وقاعدة البيانات</button>
+        <button class="nav-link" id="health-tab" data-bs-toggle="tab" data-bs-target="#health-pane"><i class="fa-solid fa-server me-2"></i> صحة النظام والأمان</button>
       </li>
     </ul>
 
@@ -180,7 +214,7 @@
       <div class="tab-pane fade show active" id="nlp-pane" role="tabpanel">
         <div class="glass-card p-4">
           <h4 class="fw-bold mb-3"><i class="fa-solid fa-robot text-primary me-2"></i> الموجه التداولي والـ RAG الدلالي (Deliberative Agent)</h4>
-          <p class="text-muted">يقوم النظام بتحليل مشاعر الطالب، استخراج الكيانات (spaCy NER)، استرجاع المحتوى الأكاديمي الدقيق عبر Word2Vec Cosine Ranking، وتحديد القرار التداولي (تصعيد فوري للمينتور أم إجابة تعليمية آلية) في أقل من 35 مللي ثانية.</p>
+          <p class="text-muted">يقوم النظام بتحليل مشاعر الطالب، استخراج الكيانات (spaCy NER)، استرجاع المحتوى الأكاديمي الدقيق عبر Word2Vec Cosine Ranking، وتحديد القرار التداولي (تصعيد فوري للمينتور أم إجابة تعليمية آلية) في أقل من 35 مللي ثانية مع التحقق من الهوية والأمان.</p>
 
           <div class="mb-3">
             <label class="form-label text-muted fw-bold">أمثلة سريعة للتجربة:</label>
@@ -195,17 +229,19 @@
           </div>
 
           <div class="row g-3 mb-4">
-            <div class="col-md-3">
+            <div class="col-12 col-md-3">
               <label class="form-label">معرّف الطالب (Learner ID):</label>
               <input type="text" id="nlpLearnerId" class="form-control" value="LRN-1002">
             </div>
-            <div class="col-md-9">
+            <div class="col-12 col-md-9">
               <label class="form-label">نص استفسار الطالب:</label>
               <input type="text" id="nlpQueryText" class="form-control" placeholder="اكتب استفسار الطالب هنا...">
             </div>
           </div>
 
-          <button class="btn btn-primary-custom w-100 mb-4" onclick="runNlpAnalysis()"><i class="fa-solid fa-paper-plane me-2"></i> تحليل الاستفسار واسترجاع القرار لايف</button>
+          <button id="btnNlpAnalyze" class="btn btn-primary-custom w-100 mb-4" onclick="runNlpAnalysis()">
+            <i class="fa-solid fa-paper-plane me-2"></i> تحليل الاستفسار واسترجاع القرار لايف
+          </button>
 
           <!-- NLP Results Display -->
           <div id="nlpResultContainer" style="display: none;">
@@ -215,10 +251,10 @@
                 <span id="nlpSlaBadge" class="badge"></span>
               </div>
               <div class="row g-3 mb-3 text-center">
-                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">الأولوية</span><span class="fw-bold" id="nlpPriority"></span></div></div>
-                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">قطبية المشاعر</span><span class="fw-bold" id="nlpPolarity"></span></div></div>
-                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">الموديولات المكتشفة</span><span class="fw-bold" id="nlpModules"></span></div></div>
-                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">زمن الاستجابة</span><span class="fw-bold text-success" id="nlpLatency"></span></div></div>
+                <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">الأولوية</span><span class="fw-bold" id="nlpPriority"></span></div></div>
+                <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">قطبية المشاعر</span><span class="fw-bold" id="nlpPolarity"></span></div></div>
+                <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">الموديولات المكتشفة</span><span class="fw-bold" id="nlpModules"></span></div></div>
+                <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">زمن الاستجابة</span><span class="fw-bold text-success" id="nlpLatency"></span></div></div>
               </div>
               <div class="mb-3">
                 <label class="form-label fw-bold text-muted">رد الوكيل الذكي (Agent Synthesized Response):</label>
@@ -241,7 +277,7 @@
           <p class="text-muted">يقوم النموذج المدرب (F1 = 1.0000 مع 0 False Negatives) بتحليل مسار كويزات الطالب، ومعالجة القيم المفقودة باستخدام وسيط المحافظة مع التمرير الزمني للأمام (Forward-Fill)، وتحديد ما إذا كان الطالب بحاجة لتدخل إرشادي عاجل.</p>
 
           <div class="row g-3 mb-3">
-            <div class="col-md-6">
+            <div class="col-12 col-md-6">
               <label class="form-label">المحافظة (Cohort City):</label>
               <select id="riskCity" class="form-select">
                 <option value="Cairo" selected>القاهرة (Cairo)</option>
@@ -252,7 +288,7 @@
                 <option value="Tanta">طنطا (Tanta)</option>
               </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-12 col-md-6">
               <label class="form-label">نوع التجربة الأكاديمية:</label>
               <select id="riskMode" class="form-select" onchange="toggleRiskWeeks()">
                 <option value="full" selected>التجربة B: المسار الكامل (الأسابيع 1 إلى 5)</option>
@@ -262,21 +298,23 @@
           </div>
 
           <div class="row g-3 mb-4">
-            <div class="col"><label>كويز 1: <span id="val_w1">75</span></label><input type="range" class="form-range" id="w1" min="0" max="100" value="75" oninput="updateSlider('w1')"></div>
-            <div class="col"><label>كويز 2: <span id="val_w2">70</span></label><input type="range" class="form-range" id="w2" min="0" max="100" value="70" oninput="updateSlider('w2')"></div>
-            <div class="col"><label>كويز 3: <span id="val_w3">65</span></label><input type="range" class="form-range" id="w3" min="0" max="100" value="65" oninput="updateSlider('w3')"></div>
-            <div class="col" id="col_w4"><label>كويز 4: <span id="val_w4">60</span></label><input type="range" class="form-range" id="w4" min="0" max="100" value="60" oninput="updateSlider('w4')"></div>
-            <div class="col" id="col_w5"><label>كويز 5: <span id="val_w5">50</span></label><input type="range" class="form-range" id="w5" min="0" max="100" value="50" oninput="updateSlider('w5')"></div>
+            <div class="col-6 col-md"><label>كويز 1: <span id="val_w1">75</span></label><input type="range" class="form-range" id="w1" min="0" max="100" value="75" oninput="updateSlider('w1')"></div>
+            <div class="col-6 col-md"><label>كويز 2: <span id="val_w2">70</span></label><input type="range" class="form-range" id="w2" min="0" max="100" value="70" oninput="updateSlider('w2')"></div>
+            <div class="col-6 col-md"><label>كويز 3: <span id="val_w3">65</span></label><input type="range" class="form-range" id="w3" min="0" max="100" value="65" oninput="updateSlider('w3')"></div>
+            <div class="col-6 col-md" id="col_w4"><label>كويز 4: <span id="val_w4">60</span></label><input type="range" class="form-range" id="w4" min="0" max="100" value="60" oninput="updateSlider('w4')"></div>
+            <div class="col-12 col-md" id="col_w5"><label>كويز 5: <span id="val_w5">50</span></label><input type="range" class="form-range" id="w5" min="0" max="100" value="50" oninput="updateSlider('w5')"></div>
           </div>
 
-          <button class="btn btn-primary-custom w-100 mb-4" onclick="runRiskPrediction()"><i class="fa-solid fa-calculator me-2"></i> تشغيل التنبؤ العصبي بالمخاطر</button>
+          <button id="btnRiskPredict" class="btn btn-primary-custom w-100 mb-4" onclick="runRiskPrediction()">
+            <i class="fa-solid fa-calculator me-2"></i> تشغيل التنبؤ العصبي بالمخاطر
+          </button>
 
           <div id="riskResultContainer" style="display: none;">
             <div class="result-box">
               <div class="row g-3 text-center">
-                <div class="col-md-4"><div class="metric-stat"><span class="text-muted d-block small">مستوى الخطورة</span><span class="metric-value" id="riskLevel"></span></div></div>
-                <div class="col-md-4"><div class="metric-stat"><span class="text-muted d-block small">احتمالية التعثر</span><span class="metric-value text-primary" id="riskProb"></span></div></div>
-                <div class="col-md-4"><div class="metric-stat"><span class="text-muted d-block small">عتبة القرار (Threshold)</span><span class="metric-value text-warning" id="riskThresh">0.35</span></div></div>
+                <div class="col-12 col-md-4"><div class="metric-stat"><span class="text-muted d-block small">مستوى الخطورة</span><span class="metric-value" id="riskLevel"></span></div></div>
+                <div class="col-12 col-md-4"><div class="metric-stat"><span class="text-muted d-block small">احتمالية التعثر</span><span class="metric-value text-primary" id="riskProb"></span></div></div>
+                <div class="col-12 col-md-4"><div class="metric-stat"><span class="text-muted d-block small">عتبة القرار (Threshold)</span><span class="metric-value text-warning" id="riskThresh">0.35</span></div></div>
               </div>
             </div>
           </div>
@@ -291,20 +329,22 @@
           <p class="text-muted">يقوم نموذج الـ LSTM ثنائي الطبقات بتحليل المسار التتابعي للدرجات، موظفاً بوابة النسيان (Forget Gate) لتخميد تشتت بدايات الكورس، ومحرك الحالة الثابتة (Cell State) للحفاظ على التدرجات الطويلة وتوقع درجة الـ Capstone بدقة.</p>
 
           <div class="row g-3 mb-4">
-            <div class="col"><label>أسبوع 1: <span id="val_l1">85</span></label><input type="range" class="form-range" id="l1" min="0" max="100" value="85" oninput="updateSlider('l1')"></div>
-            <div class="col"><label>أسبوع 2: <span id="val_l2">80</span></label><input type="range" class="form-range" id="l2" min="0" max="100" value="80" oninput="updateSlider('l2')"></div>
-            <div class="col"><label>أسبوع 3: <span id="val_l3">78</span></label><input type="range" class="form-range" id="l3" min="0" max="100" value="78" oninput="updateSlider('l3')"></div>
-            <div class="col"><label>أسبوع 4: <span id="val_l4">75</span></label><input type="range" class="form-range" id="l4" min="0" max="100" value="75" oninput="updateSlider('l4')"></div>
-            <div class="col"><label>أسبوع 5: <span id="val_l5">70</span></label><input type="range" class="form-range" id="l5" min="0" max="100" value="70" oninput="updateSlider('l5')"></div>
+            <div class="col-6 col-md"><label>أسبوع 1: <span id="val_l1">85</span></label><input type="range" class="form-range" id="l1" min="0" max="100" value="85" oninput="updateSlider('l1')"></div>
+            <div class="col-6 col-md"><label>أسبوع 2: <span id="val_l2">80</span></label><input type="range" class="form-range" id="l2" min="0" max="100" value="80" oninput="updateSlider('l2')"></div>
+            <div class="col-6 col-md"><label>أسبوع 3: <span id="val_l3">78</span></label><input type="range" class="form-range" id="l3" min="0" max="100" value="78" oninput="updateSlider('l3')"></div>
+            <div class="col-6 col-md" id="col_l4"><label>أسبوع 4: <span id="val_l4">75</span></label><input type="range" class="form-range" id="l4" min="0" max="100" value="75" oninput="updateSlider('l4')"></div>
+            <div class="col-12 col-md" id="col_l5"><label>أسبوع 5: <span id="val_l5">70</span></label><input type="range" class="form-range" id="l5" min="0" max="100" value="70" oninput="updateSlider('l5')"></div>
           </div>
 
-          <button class="btn btn-primary-custom w-100 mb-4" onclick="runLstmPrediction()"><i class="fa-solid fa-chart-line me-2"></i> استشراف أداء مشروع التخرج</button>
+          <button id="btnLstmPredict" class="btn btn-primary-custom w-100 mb-4" onclick="runLstmPrediction()">
+            <i class="fa-solid fa-chart-line me-2"></i> استشراف أداء مشروع التخرج
+          </button>
 
           <div id="lstmResultContainer" style="display: none;">
             <div class="result-box text-center">
               <div class="row g-3">
-                <div class="col-md-6"><div class="metric-stat"><span class="text-muted d-block small">الدرجة المتوقعة لمشروع التخرج</span><span class="metric-value text-success" id="lstmPredictedScore"></span></div></div>
-                <div class="col-md-6"><div class="metric-stat"><span class="text-muted d-block small">حالة التخرج المتوقعة</span><span class="metric-value" id="lstmForecastStatus"></span></div></div>
+                <div class="col-12 col-md-6"><div class="metric-stat"><span class="text-muted d-block small">الدرجة المتوقعة لمشروع التخرج</span><span class="metric-value text-success" id="lstmPredictedScore"></span></div></div>
+                <div class="col-12 col-md-6"><div class="metric-stat"><span class="text-muted d-block small">حالة التخرج المتوقعة</span><span class="metric-value" id="lstmForecastStatus"></span></div></div>
               </div>
             </div>
           </div>
@@ -312,23 +352,24 @@
         </div>
       </div>
 
-      <!-- 4. Health Tab -->
+      <!-- 4. Health & Security Tab -->
       <div class="tab-pane fade" id="health-pane" role="tabpanel">
         <div class="glass-card p-4">
-          <h4 class="fw-bold mb-3"><i class="fa-solid fa-server text-primary me-2"></i> تقرير مؤشرات الأداء الحية وحالة السيرفر</h4>
+          <h4 class="fw-bold mb-3"><i class="fa-solid fa-shield-halved text-primary me-2"></i> تقرير مؤشرات الأداء الحية، الأمان والـ SLA</h4>
           <div class="row g-3 text-center mb-4">
-            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">حالة الخدمة</span><span class="text-success fw-bold">Healthy (نشط)</span></div></div>
-            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">سقف الـ SLA الرياضي</span><span class="text-info fw-bold">3,280 ms &lt; 3.5s</span></div></div>
-            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">النماذج المحملة</span><span class="text-warning fw-bold">6 نماذج نشطة</span></div></div>
-            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">قاعدة البيانات العلائقية</span><span class="text-success fw-bold">SQLite 3NF متصلة</span></div></div>
+            <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">حالة الخدمة</span><span id="healthStatusText" class="text-success fw-bold">Healthy (نشط)</span></div></div>
+            <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">سقف الـ SLA الرياضي</span><span class="text-info fw-bold">3,280 ms &lt; 3.5s</span></div></div>
+            <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">النماذج المحملة</span><span id="healthModelsCount" class="text-warning fw-bold">7 نماذج نشطة</span></div></div>
+            <div class="col-6 col-md-3"><div class="metric-stat"><span class="text-muted d-block small">الأمان و Rate Limiting</span><span class="text-success fw-bold">120 req/min (X-API-Key)</span></div></div>
           </div>
           <div class="p-3 bg-dark rounded border border-secondary">
-            <h6 class="fw-bold text-muted mb-2">معلومات البيئة والاستضافة:</h6>
+            <h6 class="fw-bold text-muted mb-2">معلومات البيئة والاستضافة والأمان:</h6>
             <ul class="mb-0 small text-muted">
               <li>المسار المباشر للـ API: <code>http://localhost:8000</code></li>
               <li>واجهة التوثيق التفاعلية (OpenAPI): <a href="/docs" target="_blank" class="text-primary">/docs</a></li>
               <li>منفذ سير عمل n8n التفاعلي: <code>http://localhost:5678</code></li>
-              <li>التحقق الصارم من الترقية والمايجريشن: <code>ensure_db_schema() Fail-Fast Verified</code></li>
+              <li>نظام المصادقة: <code>X-API-Key Enforced (HTTP 401 on Unauthorized)</code></li>
+              <li>الحماية من هجمات الإغراق: <code>Sliding Window Rate Limiter (HTTP 429)</code></li>
             </ul>
           </div>
         </div>
@@ -339,6 +380,36 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    function getApiKey() {
+      const el = document.getElementById('apiKeyInput');
+      return el ? el.value.trim() : '';
+    }
+
+    function toggleApiKeyVisibility() {
+      const el = document.getElementById('apiKeyInput');
+      const icon = document.getElementById('eyeIcon');
+      if (el.type === 'password') {
+        el.type = 'text';
+        icon.className = 'fa-solid fa-eye-slash';
+      } else {
+        el.type = 'password';
+        icon.className = 'fa-solid fa-eye';
+      }
+    }
+
+    function showAlert(message, type = 'danger') {
+      const banner = document.getElementById('globalAlertBanner');
+      banner.className = `alert alert-${type} shadow-sm`;
+      banner.innerHTML = message;
+      banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function clearAlert() {
+      const banner = document.getElementById('globalAlertBanner');
+      banner.className = 'alert d-none';
+      banner.innerHTML = '';
+    }
+
     function updateSlider(id) {
       document.getElementById('val_' + id).innerText = document.getElementById(id).value;
     }
@@ -352,22 +423,82 @@
 
     function setQuery(text) {
       document.getElementById('nlpQueryText').value = text;
+      clearAlert();
     }
 
+    // Active Real-Time Server & Model Health Check
+    async function checkServerHealth() {
+      const badge = document.getElementById('liveStatusBadge');
+      try {
+        const res = await fetch('/api/v1/health');
+        if (res.ok) {
+          const data = await res.json();
+          const count = (data.models_loaded && Array.isArray(data.models_loaded)) ? data.models_loaded.length : 7;
+          badge.className = 'badge badge-live px-3 py-2';
+          badge.innerHTML = `<i class="fa-solid fa-circle-check me-1"></i> خادم البث المباشر يعمل (${count} نماذج نشطة)`;
+          document.getElementById('healthStatusText').innerText = 'Healthy (نشط)';
+          document.getElementById('healthModelsCount').innerText = `${count} نماذج نشطة`;
+        } else {
+          badge.className = 'badge badge-offline px-3 py-2';
+          badge.innerHTML = `<i class="fa-solid fa-circle-exclamation me-1"></i> تنبيه الخادم (HTTP ${res.status})`;
+        }
+      } catch (err) {
+        badge.className = 'badge badge-offline px-3 py-2';
+        badge.innerHTML = '<i class="fa-solid fa-circle-xmark me-1"></i> الخادم غير متصل (Offline)';
+        document.getElementById('healthStatusText').innerText = 'Offline (غير متصل)';
+      }
+    }
+
+    // Run health check on load and every 10 seconds
+    document.addEventListener('DOMContentLoaded', () => {
+      checkServerHealth();
+      setInterval(checkServerHealth, 10000);
+    });
+
+    // 1. NLP Analysis
     async function runNlpAnalysis() {
+      clearAlert();
       const query = document.getElementById('nlpQueryText').value.trim();
       const learnerId = document.getElementById('nlpLearnerId').value.trim() || 'LRN-1002';
-      if (!query) { alert('برجاء كتابة استفسار للتجربة!'); return; }
+      
+      // Client-side validation
+      if (!query) {
+        showAlert('<i class="fa-solid fa-circle-exclamation me-2"></i> برجاء كتابة استفسار للطالب للتجربة أولاً!', 'warning');
+        return;
+      }
+
+      // Hide previous results (stale prevention) and set button spinner
+      const resultContainer = document.getElementById('nlpResultContainer');
+      resultContainer.style.display = 'none';
+      const btn = document.getElementById('btnNlpAnalyze');
+      const origBtnHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> جاري استدعاء المحرك التداولي والتحقق من الهوية...';
 
       try {
         const res = await fetch('/api/v1/analyze', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': getApiKey()
+          },
           body: JSON.stringify({ learner_id: learnerId, query_text: query })
         });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ detail: res.statusText }));
+          if (res.status === 401) {
+            showAlert(`<strong>🚫 خطأ في المصادقة (HTTP 401 Unauthorized):</strong> ${errData.detail || 'مفتاح الـ API غير صالح أو مفقود. تم حظر الطلب بنجاح لحماية بيانات الطلاب.'}`, 'danger');
+          } else if (res.status === 429) {
+            showAlert(`<strong>⏱️ تجاوز حد الطلبات (HTTP 429 Too Many Requests):</strong> ${errData.detail || 'تم تجاوز السقف المسموح به (120 طلب/دقيقة). برجاء الانتظار قليلاً.'}`, 'warning');
+          } else {
+            showAlert(`<strong>⚠️ خطأ (HTTP ${res.status}):</strong> ${errData.detail || 'تعذر معالجة الطلب.'}`, 'danger');
+          }
+          return;
+        }
+
         const data = await res.json();
-        
-        document.getElementById('nlpResultContainer').style.display = 'block';
+        resultContainer.style.display = 'block';
         const isEsc = (data.routing_decision === 'HUMAN_OPERATOR_ESCALATION');
         
         document.getElementById('nlpDecisionHeader').innerHTML = isEsc
@@ -392,11 +523,16 @@
           document.getElementById('nlpChunkDiv').style.display = 'none';
         }
       } catch (err) {
-        alert('حدث خطأ أثناء استدعاء الـ API: ' + err);
+        showAlert(`<strong>💥 خطأ في الشبكة أو الاتصال:</strong> ${err.message}`, 'danger');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = origBtnHtml;
       }
     }
 
+    // 2. Risk Prediction
     async function runRiskPrediction() {
+      clearAlert();
       const mode = document.getElementById('riskMode').value;
       const city = document.getElementById('riskCity').value;
       const w1 = parseFloat(document.getElementById('w1').value);
@@ -413,24 +549,47 @@
         endpoint = '/api/v1/predict_risk_early';
       }
 
+      // Hide previous results & set spinner
+      const resultContainer = document.getElementById('riskResultContainer');
+      resultContainer.style.display = 'none';
+      const btn = document.getElementById('btnRiskPredict');
+      const origBtnHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> جاري استنتاج المخاطر عصبياً...';
+
       try {
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': getApiKey()
+          },
           body: JSON.stringify(payload)
         });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ detail: res.statusText }));
+          showAlert(`<strong>⚠️ خطأ (HTTP ${res.status}):</strong> ${errData.detail || 'تعذر استدعاء التنبؤ.'}`, (res.status === 401) ? 'danger' : 'warning');
+          return;
+        }
+
         const data = await res.json();
-        document.getElementById('riskResultContainer').style.display = 'block';
+        resultContainer.style.display = 'block';
         document.getElementById('riskLevel').innerText = data.risk_level;
         document.getElementById('riskLevel').className = (data.risk_level === 'High Risk') ? 'metric-value text-danger' : 'metric-value text-success';
         document.getElementById('riskProb').innerText = (data.risk_probability * 100).toFixed(1) + '%';
         document.getElementById('riskThresh').innerText = data.decision_threshold || '0.35';
       } catch (err) {
-        alert('خطأ في استدعاء التنبؤ: ' + err);
+        showAlert(`<strong>💥 خطأ في الشبكة:</strong> ${err.message}`, 'danger');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = origBtnHtml;
       }
     }
 
+    // 3. LSTM Prediction
     async function runLstmPrediction() {
+      clearAlert();
       const scores = [
         parseFloat(document.getElementById('l1').value),
         parseFloat(document.getElementById('l2').value),
@@ -438,19 +597,41 @@
         parseFloat(document.getElementById('l4').value),
         parseFloat(document.getElementById('l5').value)
       ];
+
+      // Hide previous results & set spinner
+      const resultContainer = document.getElementById('lstmResultContainer');
+      resultContainer.style.display = 'none';
+      const btn = document.getElementById('btnLstmPredict');
+      const origBtnHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> جاري استشراف مشروع التخرج عبر الـ LSTM...';
+
       try {
         const res = await fetch('/api/v1/predict_sequence', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': getApiKey()
+          },
           body: JSON.stringify({ learner_id: 'LRN-1002', quiz_scores: scores })
         });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ detail: res.statusText }));
+          showAlert(`<strong>⚠️ خطأ (HTTP ${res.status}):</strong> ${errData.detail || 'تعذر استدعاء الـ LSTM.'}`, (res.status === 401) ? 'danger' : 'warning');
+          return;
+        }
+
         const data = await res.json();
-        document.getElementById('lstmResultContainer').style.display = 'block';
+        resultContainer.style.display = 'block';
         document.getElementById('lstmPredictedScore').innerText = data.predicted_capstone_score.toFixed(1) + ' / 100';
         document.getElementById('lstmForecastStatus').innerText = data.forecast_status;
         document.getElementById('lstmForecastStatus').className = (data.predicted_capstone_score >= 60) ? 'metric-value text-success' : 'metric-value text-danger';
       } catch (err) {
-        alert('خطأ في استدعاء الـ LSTM: ' + err);
+        showAlert(`<strong>💥 خطأ في الشبكة:</strong> ${err.message}`, 'danger');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = origBtnHtml;
       }
     }
   </script>

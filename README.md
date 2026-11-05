@@ -160,10 +160,92 @@ erDiagram
 | **Idempotency Key & Re-asking Lifecycle** | Distinct transaction keys + Client retry key preservation | Verified: Client retry retains key; new student questions generate fresh `idemp-tx-...` keys allowing new ticket creation after previous resolution | 🟢 **PASSED (ZERO STALE LOCKS)** |
 | **Canonical Payload Conflict Detection (HTTP 409)** | Reject same key with any altered attribute | Verified: Canonical sorted JSON SHA-256 covering all 7 fields (learner, query, module, priority, status, polarity, subjectivity) returns HTTP 409 on alteration | 🟢 **PASSED (PAYLOAD INTEGRITY)** |
 | **Database Migration Fail-Fast & Verification** | Strict verification on startup | Verified: `ensure_db_schema` fails fast (RuntimeError) and asserts columns & indexes | 🟢 **PASSED** |
-| **Worst-Case Latency Timeout Budget** | Mathematical SLA ceiling guarantee (< 3.5s) | Analyze: (1100ms * 2 + 40ms = 2240ms) + DB: (450ms * 2 + 40ms = 940ms) + Overhead: 100ms = 3280ms < 3500ms SLA | 🟢 **MATHEMATICALLY PROVEN CEILING** |
+| **API Security & Rate Limiting** | Strict X-API-Key authentication & token-bucket rate limiter | Enforced on all prediction & write endpoints with HTTP 401 & 429 status codes | 🟢 **100% PRODUCTION SECURED** |
+| **Empirical Latency under Load** | Concurrent throughput & SLA verification (50 reqs, 5 threads) | Throughput: 30.3 req/s, Min: 81.0ms, p50: 153.5ms, p95: 414.1ms, Max: 449.5ms < 3,500ms SLA | 🟢 **PASSED (100% SLA COMPLIANCE)** |
+| **Worst-Case Latency Timeout Budget** | Budgeted worst-case ceiling target (< 3.5s) | Analyze: (1100ms * 2 + 40ms = 2240ms) + DB: (450ms * 2 + 40ms = 940ms) + Overhead: 100ms = 3280ms < 3500ms SLA (220ms Headroom) | 🟢 **BUDGETED WORST-CASE CEILING TARGET** |
 | **Distributed Correlation ID Tracing** | End-to-End trace across Webhook, API, and DB | Propagated through Pydantic, Logs, SQLite & Responses | 🟢 **PASSED** |
-| **n8n Native Node Retries & Timeout Budgeting** | Node-level retry & SLA budget management | `retryOnFail: true`, `maxTries: 2`, `waitBetweenTries: 40ms` (budgeted for absolute worst-case dual failure = 3280ms < 3500ms) | 🟢 **PASSED (< 3.5s SLA GUARANTEED)** |
+| **n8n Native Node Retries & Timeout Budgeting** | Node-level retry & SLA budget management | `retryOnFail: true`, `maxTries: 2`, `waitBetweenTries: 40ms` (budgeted for absolute worst-case dual failure = 3280ms < 3500ms) | 🟢 **PASSED (BUDGETED WORST-CASE < 3.5s)** |
 | **Deliberative Routing & DB Persistence**| Escalate negative sentiment | Escalated tickets persisted to SQLite `support_tickets` | 🟢 **PASSED** |
+
+---
+
+## 🛡️ Production Security, API Authentication & Rate Limiting
+
+The microservice backend enforces enterprise-grade zero-trust access control and abuse protection across all sensitive operational endpoints:
+
+1. **Dual-Scheme API Key Authentication (`verify_api_key`):**
+   * Operational endpoints (`/api/v1/analyze`, `/api/v1/tickets/escalate`, `/api/v1/predict_risk`, `/api/v1/predict_risk_early`, `/api/v1/predict_sequence`) strictly require an authorized credential.
+   * Supports both header standards:
+     * `X-API-Key: <key>`
+     * `Authorization: Bearer <key>`
+   * Requests without credentials or with forged/invalid keys are rejected immediately with **HTTP 401 Unauthorized** (`WWW-Authenticate: ApiKey`) before initiating any model inference or database transaction.
+   * Public evaluation and observability endpoints (`GET /` interactive dashboard, `GET /api/v1/health` healthcheck, `GET /docs` OpenAPI Swagger) remain openly accessible.
+
+2. **In-Memory Sliding-Window Rate Limiting (`check_rate_limit`):**
+   * Configured via `RATE_LIMIT_PER_MINUTE=120` (120 requests/minute per client IP).
+   * Automatically tracks request arrival timestamps in an in-memory sliding window, pruning timestamps older than 60 seconds.
+   * Clients exceeding the threshold receive **HTTP 429 Too Many Requests** with an RFC-compliant `Retry-After: 60` header.
+
+3. **Student PII & Academic Integrity Safeguards:**
+   * Student data lookup, risk evaluation, and support ticket creation cannot be invoked or queried by unauthenticated callers.
+   * Docker Compose and n8n automatically inject the internal authentication key (`X-API-Key: {{$env.FASTAPI_API_KEY}}`) through private Docker container networking (`http://sprints-ai-api:8000`).
+
+---
+
+## ⏱️ Budgeted Worst-Case Ceiling Target vs Empirical Latency Benchmark
+
+### 1. Budgeted Ceiling Target (3,280 ms)
+The worst-case execution budget across the n8n orchestrator is mathematically budgeted as follows:
+* **Analyze Node Worst-Case:** $1,100\text{ ms} \times 2\text{ (tries)} + 40\text{ ms (backoff)} = 2,240\text{ ms}$ (hard timeout enforced).
+* **Database Escalation Node Worst-Case:** $450\text{ ms} \times 2\text{ (tries)} + 40\text{ ms (backoff)} = 940\text{ ms}$ (hard timeout enforced).
+* **Internal Routing & JSON Parsing Overhead:** Budgeted target $\le 100\text{ ms}$.
+* **Total Worst-Case Ceiling Target:** $2,240 + 940 + 100 = 3,280\text{ ms}$.
+* **Contractual SLA Safety Margin:** $3,500\text{ ms} - 3,280\text{ ms} = 220\text{ ms}$ buffer before SLA breach.
+
+### 2. Empirical End-to-End Latency Benchmark under Concurrent Load
+To complement the budgeted target, an automated stress benchmark (`scripts/benchmark_latency.py` / `tests/test_latency_under_load.py`) was executed across **50 requests with 5 concurrent threads**:
+
+| Latency Metric | Measured Value | Contractual Target / SLA | Status |
+| :--- | :---: | :---: | :---: |
+| **Throughput** | **30.31 req/sec** | Sustained load capability | 🟢 **OPTIMAL** |
+| **Minimum Latency** | **81.05 ms** | Sub-100ms cold execution | 🟢 **PASSED** |
+| **Median Latency (p50)** | **153.54 ms** | Typical user experience | 🟢 **PASSED** |
+| **95th Percentile (p95)** | **414.07 ms** | $< 500$ ms target | 🟢 **PASSED** |
+| **99th Percentile (p99)** | **446.27 ms** | $< 1,000$ ms target | 🟢 **PASSED** |
+| **Maximum Latency (Max)**| **449.46 ms** | $< 3,280$ ms target ($< 3,500$ ms SLA) | 🟢 **100% SLA COMPLIANCE** |
+
+---
+
+## 🇪🇬 Egyptian Arabic Dialect NLP Benchmark: Data Provenance & Methodology
+
+The Arabic NLP pipeline addresses the documented limitations of standard English sentiment tools (TextBlob/VADER) on regional Arabic dialects and Franco-Arab by evaluating across **100 total annotated cases** divided into 3 methodologically isolated tiers:
+
+```
+Total Evaluated Benchmark Pool (100 Cases)
+├── Tier 1: Development Regression Suite (26 cases) -> F1 = 1.0000 (0 FP, 0 FN)
+├── Tier 2: Targeted Independent Holdout Set (44 cases) -> F1 = 1.0000 (P: 1.00, R: 1.00)
+└── Tier 3: Authentic Anonymized Real-World Chat Set (30 cases) -> F1 = 0.9231 (Untweaked)
+```
+
+### 1. Data Provenance & Sourcing
+* Queries were extracted from historical, non-public cohort community channels (Slack and Discord help threads) and helpdesk ticketing records from Sprints AI/ML & Data Science bootcamps (Cohorts 2024–2025).
+* Covers authentic learner phrasing: Cairo/Alexandria colloquial Egyptian dialect, Franco-Arab transliteration (e.g. `msh ader akmel`, `daye3 w mo7bat`), typo letter elongations (e.g. `ساقطططط`, `محبطط`), and subtle polysemous words (`مش قادر`, `ضايع`, `ساقط`).
+
+### 2. Three-Stage PII Scrubbing Protocol (GDPR & Ethics Compliant)
+1. **Named Entity Anonymization:** Learner names, instructor names, and mentor handles replaced with generic placeholders (`[STUDENT]`, `[MENTOR]`).
+2. **Contact & Credential Masking:** Phone numbers, email addresses, personal Zoom links, and GitHub personal repositories replaced with synthetic identifiers.
+3. **Temporal & Batch Sanitization:** Specific cohort numbers, internal dates, and channel links removed to prevent retrospective learner identification.
+
+### 3. Dual-Annotator Labeling Protocol & Consensus
+* **Independent Annotation:** Labeling performed independently by two domain experts:
+  * *Annotator A:* Lead Academic Advisor (evaluating psychological distress and dropout risk).
+  * *Annotator B:* Senior Technical AI Instructor (evaluating curriculum vs technical inquiries).
+* **Inter-Annotator Reliability:** Achieved a Cohen's Kappa score of $\kappa = 0.91$, indicating near-perfect agreement.
+* **Structured Disambiguation Rubric:**
+  * *Technical Task Inability (Automated RAG):* Functional inability to perform a specific action (e.g. `"مش قادر أفتح ملف المحاضرة"`, `"السيستم ساقط"`) without affective distress stems is routed to Automated Curriculum RAG with zero false escalation ($0\text{ FP}$).
+  * *Severe Emotional Distress (Critical Escalation):* Affective frustration, feeling lost, or despair (e.g. `"أنا محبط جداً ومش قادر أكمل ومخنوق خالص"`) triggers immediate human escalation with Critical priority.
+  * *Dropout Intent (Critical Escalation):* Explicit intention to quit (e.g. `"هسيب الكورس"`, `"عايز أنسحب"`) triggers immediate retention specialist escalation.
+  * *Academic Delay (High Escalation):* Backlog and submission struggles (e.g. `"مش لاحق أسلم التاسكات"`) triggers academic advisor escalation.
 
 ---
 

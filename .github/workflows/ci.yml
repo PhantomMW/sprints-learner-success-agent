@@ -50,6 +50,18 @@ jobs:
         run: |
           python -m pytest -v tests/test_idempotency_and_retry.py
 
+      - name: Sprint 4 - API Security, X-API-Key Authentication & Rate Limiting
+        run: |
+          python -m pytest -v tests/test_security_and_auth.py
+
+      - name: Sprint 4 - Concurrency & Empirical Latency SLA Benchmark
+        run: |
+          python -m pytest -v tests/test_latency_under_load.py
+
+      - name: Sprint 4 - Live Interactive Dashboard End-to-End Verification
+        run: |
+          python -m pytest -v tests/test_dashboard_e2e.py
+
       - name: Sprint 4 - n8n Workflow Engine & JavaScript Code Verification
         run: |
           node tests/test_n8n_workflow_engine.js

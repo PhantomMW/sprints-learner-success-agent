@@ -23,8 +23,10 @@ from typing import List, Optional, Dict, Any
 import uuid
 import hashlib
 import json
-from fastapi import FastAPI, HTTPException, status, Header
+from collections import defaultdict
+from fastapi import FastAPI, HTTPException, status, Header, Request, Depends, Security
 from fastapi.responses import HTMLResponse
+from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from gensim.models import Word2Vec
 
@@ -85,6 +87,74 @@ import logging
 from contextlib import contextmanager
 
 logger = logging.getLogger("sprints_agent")
+
+# ==============================================================================
+# API SECURITY, AUTHENTICATION & RATE LIMITING
+# ==============================================================================
+SPRINTS_API_KEY = os.environ.get("SPRINTS_API_KEY", "sprints-capstone-secret-api-key-2026")
+api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+RATE_LIMIT_PER_MINUTE = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120"))
+_rate_limit_history: Dict[str, List[float]] = defaultdict(list)
+
+def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool:
+    """
+    In-memory sliding window rate limiter per client IP address.
+    Prunes timestamps older than 60 seconds and verifies request count < limit.
+    """
+    now = time.time()
+    cutoff = now - 60.0
+    _rate_limit_history[client_ip] = [t for t in _rate_limit_history[client_ip] if t > cutoff]
+    if len(_rate_limit_history[client_ip]) >= limit:
+        return False
+    _rate_limit_history[client_ip].append(now)
+    return True
+
+async def rate_limiter_dependency(request: Request):
+    """Enforces sliding window rate limiting per IP address."""
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    
+    if not check_rate_limit(client_ip):
+        logger.warning(f"Rate limit exceeded for client {client_ip} (> {RATE_LIMIT_PER_MINUTE} req/min)")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded: Maximum {RATE_LIMIT_PER_MINUTE} requests per minute. Please retry after some time.",
+            headers={"Retry-After": "60"}
+        )
+
+async def verify_api_key(
+    request: Request,
+    api_key: Optional[str] = Security(api_key_header_scheme),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Enforces API Key authentication and rate limiting.
+    Accepts credentials via:
+    1. Header 'X-API-Key: <key>'
+    2. Header 'Authorization: Bearer <key>'
+    """
+    await rate_limiter_dependency(request)
+    
+    token = api_key
+    if not token and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+        elif len(parts) == 1:
+            token = parts[0]
+            
+    if not token or token != SPRINTS_API_KEY:
+        logger.warning(f"Unauthorized API request from {request.client.host if request.client else 'unknown'}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Missing or invalid API Key. Provide 'X-API-Key: <key>' or 'Authorization: Bearer <key>'.",
+            headers={"WWW-Authenticate": "ApiKey"}
+        )
+    return token
+
 
 def get_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
@@ -348,7 +418,7 @@ def live_demo_dashboard():
 
 
 @app.get("/api/v1/health")
-def healthcheck():
+def healthcheck(_rate_limit: None = Depends(rate_limiter_dependency)):
     return {
         "status": "healthy",
         "service": "Sprints AI Learner Success Agent",
@@ -360,7 +430,8 @@ def healthcheck():
 def analyze_learner_query(
     req: LearnerQueryRequest,
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
-    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key")
+    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
+    _auth: str = Depends(verify_api_key)
 ):
     """
     Sub-second endpoint called directly by the n8n Webhook / HTTP node.
@@ -432,7 +503,8 @@ def compute_payload_hash(
 def escalate_ticket_to_db(
     req: TicketEscalationRequest,
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
-    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key")
+    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
+    _auth: str = Depends(verify_api_key)
 ):
     """
     Persistent escalation endpoint: logs escalated tickets directly into
@@ -647,7 +719,7 @@ def escalate_ticket_to_db(
     }
 
 @app.post("/api/v1/predict_risk")
-def predict_learner_risk(req: RiskPredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")):
+def predict_learner_risk(req: RiskPredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"), _auth: str = Depends(verify_api_key)):
     """
     Sprint 2: Evaluates a student's structured quiz profile using the PyTorch MLP.
     Supports both Experiment A (Early Risk W1-W3) and Experiment B (Full Trajectory W1-W5).
@@ -723,7 +795,7 @@ def predict_learner_risk(req: RiskPredictionRequest, x_correlation_id: Optional[
     }
 
 @app.post("/api/v1/predict_risk_early")
-def predict_learner_risk_early(req: EarlyRiskPredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")):
+def predict_learner_risk_early(req: EarlyRiskPredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"), _auth: str = Depends(verify_api_key)):
     """
     Sprint 2 (Experiment A): Dedicated Proactive Early Risk Classifier.
     Predicts dropout risk at Week 3 before learner attrition occurs.
@@ -779,7 +851,7 @@ def predict_learner_risk_early(req: EarlyRiskPredictionRequest, x_correlation_id
     }
 
 @app.post("/api/v1/predict_sequence")
-def predict_sequence_trajectory(req: SequencePredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")):
+def predict_sequence_trajectory(req: SequencePredictionRequest, x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"), _auth: str = Depends(verify_api_key)):
     """
     Sprint 3: Feeds 5-week quiz vector into PyTorch LSTM to forecast capstone outcome.
     Utilizes Forget Gate dynamics and the Constant Error Carousel (Cell State).

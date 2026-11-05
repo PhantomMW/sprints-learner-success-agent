@@ -25,7 +25,7 @@ if api_dir not in sys.path:
 from app import app, load_all_models
 
 load_all_models()
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": "sprints-capstone-secret-api-key-2026"})
 
 print("\n" + "="*65)
 print("TESTING SPRINTS FASTAPI BACKEND & N8N AGENT ROUTING")

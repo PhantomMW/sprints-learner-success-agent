@@ -35,7 +35,7 @@ from app import app, get_db_connection, ensure_db_schema
 
 @pytest.fixture(scope="module")
 def client():
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-API-Key": "sprints-capstone-secret-api-key-2026"}) as c:
         yield c
 
 class TestIdempotencyAndRetry:

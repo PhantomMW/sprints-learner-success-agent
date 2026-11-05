@@ -10,6 +10,7 @@ services:
       - ./database:/app/database
     environment:
       - PYTHONUNBUFFERED=1
+      - SPRINTS_API_KEY=sprints-capstone-secret-api-key-2026
     restart: unless-stopped
 
   sprints-n8n:
@@ -23,6 +24,7 @@ services:
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
       - FASTAPI_BASE_URL=http://sprints-ai-api:8000
+      - FASTAPI_API_KEY=sprints-capstone-secret-api-key-2026
       - GENERIC_TIMEZONE=Africa/Cairo
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false

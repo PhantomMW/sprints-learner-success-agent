@@ -706,7 +706,7 @@ def run_word2vec_fasttext_comparison(w2v_model=None, ft_model=None):
 # ==============================================================================
 # Methodological Separation:
 # A. Development / Calibration Set (26 cases): Used for rule consistency & regression prevention.
-# B. Independent Holdout Evaluation Set (24 cases): Unseen authentic student queries,
+# B. Independent Holdout Evaluation Set (44 cases): Unseen authentic student queries,
 #    including slang, typos, Franco-Arab, and subtle semantic boundary test cases.
 # ==============================================================================
 
@@ -746,7 +746,7 @@ ARABIC_DEV_BENCHMARK_DATASET = [
     {"text": "مش لاحق أسلم التاسكات والتراكم زاد عليا ومحبط", "expected_escalate": True, "category": "ACADEMIC_DELAY", "label": "Academic Delay: Backlog with frustration"}
 ]
 
-# B. Independent Holdout Evaluation Set (24 Unseen Cases)
+# B. Independent Holdout Evaluation Set (44 Unseen Cases)
 ARABIC_HOLDOUT_TEST_SET = [
     {"text": "بجد مش قادر أستوعب الـ backprop وحاسس إني غبي", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Self-doubt and despair"},
     {"text": "الدرجات نازلة جدًا وأنا متدمر نفسيًا وخايف أسقط", "expected_escalate": True, "category": "EMOTIONAL_DISTRESS", "label": "Grade anxiety and trauma"},

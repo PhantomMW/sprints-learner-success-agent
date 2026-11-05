@@ -51,6 +51,10 @@
             {
               "name": "Idempotency-Key",
               "value": "={{$json.idempotency_key}}"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{$env.FASTAPI_API_KEY || 'sprints-capstone-secret-api-key-2026'}}"
             }
           ]
         }
@@ -108,6 +112,10 @@
             {
               "name": "Idempotency-Key",
               "value": "={{$json.idempotency_key}}"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{$env.FASTAPI_API_KEY || 'sprints-capstone-secret-api-key-2026'}}"
             }
           ]
         }
