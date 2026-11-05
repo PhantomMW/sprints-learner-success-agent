@@ -160,34 +160,76 @@ class TestSecurityHardening:
         assert "Payload Too Large" in res.json().get("detail", "")
 
     # ==========================================================================
-    # 4. DASHBOARD SESSION MANAGEMENT LIFECYCLE
+    # 4. DASHBOARD SESSION MANAGEMENT LIFECYCLE & CSRF DEFENSE
     # ==========================================================================
 
     def test_session_login_with_valid_key_sets_httponly_cookie(self, client):
-        """POST /api/v1/auth/login exchanges API Key for secure session token & cookie."""
+        """POST /api/v1/auth/login sets HttpOnly cookie and non-HttpOnly CSRF cookie, with zero token leak in JSON body."""
         res = client.post("/api/v1/auth/login", json={"api_key": SPRINTS_API_KEY})
         assert res.status_code == 200
         data = res.json()
         assert data.get("status") == "authenticated"
-        assert "session_token" in data
+        assert "session_token" not in data, "Security failure: session_token must not be exposed in JSON body"
         assert "sprints_session_id" in res.cookies
+        assert "sprints_csrf_token" in res.cookies
 
     def test_session_login_with_invalid_key_fails(self, client):
         """POST /api/v1/auth/login with wrong key fails with 401."""
         res = client.post("/api/v1/auth/login", json={"api_key": "wrong-secret-key-xyz"})
         assert res.status_code == 401
 
-    def test_session_cookie_authenticates_operational_endpoints(self, client):
-        """Caller possessing valid session cookie can query endpoints without sending raw API key."""
-        # 1. Login to obtain session cookie
+    def test_session_cookie_authenticates_operational_endpoints_with_csrf(self, client):
+        """Caller possessing valid session cookie and X-CSRF-Token can query endpoints without sending raw API key."""
+        # 1. Login to obtain session cookie and csrf cookie
+        login_res = client.post("/api/v1/auth/login", json={"api_key": SPRINTS_API_KEY})
+        assert login_res.status_code == 200
+        csrf_token = login_res.cookies.get("sprints_csrf_token")
+        assert csrf_token is not None
+
+        # 2. Invoke /api/v1/analyze relying purely on session cookie and Double-Submit CSRF header
+        res = client.post(
+            "/api/v1/analyze",
+            json={"learner_id": "LRN-1002", "query_text": "Explain PyTorch tensors briefly."},
+            cookies=login_res.cookies,
+            headers={"X-CSRF-Token": csrf_token}
+        )
+        assert res.status_code == 200
+        assert res.json().get("routing_decision") == "AUTOMATED_RAG_PIPELINE"
+
+    def test_session_cookie_missing_csrf_token_returns_403(self, client):
+        """Session-authenticated mutating request missing X-CSRF-Token must be rejected with HTTP 403 Forbidden."""
         login_res = client.post("/api/v1/auth/login", json={"api_key": SPRINTS_API_KEY})
         assert login_res.status_code == 200
 
-        # 2. Invoke /api/v1/analyze relying purely on session cookie (no X-API-Key header!)
+        # Attempt POST without X-CSRF-Token header
         res = client.post(
             "/api/v1/analyze",
             json={"learner_id": "LRN-1002", "query_text": "Explain PyTorch tensors briefly."},
             cookies=login_res.cookies
+        )
+        assert res.status_code == 403
+        assert "CSRF Protection" in res.json().get("detail", "")
+
+    def test_session_cookie_invalid_csrf_token_returns_403(self, client):
+        """Session-authenticated mutating request with forged/mismatched X-CSRF-Token must be rejected with HTTP 403."""
+        login_res = client.post("/api/v1/auth/login", json={"api_key": SPRINTS_API_KEY})
+        assert login_res.status_code == 200
+
+        res = client.post(
+            "/api/v1/analyze",
+            json={"learner_id": "LRN-1002", "query_text": "Explain PyTorch tensors briefly."},
+            cookies=login_res.cookies,
+            headers={"X-CSRF-Token": "forged_malicious_token_12345"}
+        )
+        assert res.status_code == 403
+        assert "CSRF Protection" in res.json().get("detail", "")
+
+    def test_stateless_api_key_auth_is_exempt_from_csrf(self, client):
+        """Stateless machine-to-machine requests using X-API-Key do NOT require CSRF tokens."""
+        res = client.post(
+            "/api/v1/analyze",
+            json={"learner_id": "LRN-1002", "query_text": "Explain PyTorch tensors briefly."},
+            headers={"X-API-Key": SPRINTS_API_KEY}
         )
         assert res.status_code == 200
         assert res.json().get("routing_decision") == "AUTOMATED_RAG_PIPELINE"
@@ -197,20 +239,26 @@ class TestSecurityHardening:
         # 1. Login
         login_res = client.post("/api/v1/auth/login", json={"api_key": SPRINTS_API_KEY})
         cookies = login_res.cookies
+        csrf_token = cookies.get("sprints_csrf_token")
 
         # Verify active session
         sess_check = client.get("/api/v1/auth/session", cookies=cookies)
         assert sess_check.status_code == 200
 
         # 2. Logout
-        logout_res = client.post("/api/v1/auth/logout", cookies=cookies)
+        logout_res = client.post(
+            "/api/v1/auth/logout",
+            cookies=cookies,
+            headers={"X-CSRF-Token": csrf_token}
+        )
         assert logout_res.status_code == 200
 
         # 3. Call with old cookie must fail with 401
         res = client.post(
             "/api/v1/analyze",
             json={"learner_id": "LRN-1002", "query_text": "Explain PyTorch tensors briefly."},
-            cookies=cookies
+            cookies=cookies,
+            headers={"X-CSRF-Token": csrf_token}
         )
         assert res.status_code == 401
 
@@ -252,3 +300,32 @@ class TestSecurityHardening:
             headers={"X-API-Key": "sprints-capstone-secret-api-key-2026"}
         )
         assert res.status_code == 401
+
+    # ==========================================================================
+    # 7. MANDATORY SECRETS FAIL-FAST ZERO-INSECURE-FALLBACK ENFORCEMENT
+    # ==========================================================================
+
+    def test_missing_mandatory_secrets_fails_fast_on_startup(self, monkeypatch):
+        """Application must raise RuntimeError if WEBHOOK_SECRET or SESSION_SECRET is missing."""
+        import importlib
+        import app as app_module
+
+        orig_exists = os.path.exists
+        monkeypatch.setattr(os.path, "exists", lambda p: False if str(p).endswith(".env") else orig_exists(p))
+
+        # Test missing WEBHOOK_SECRET
+        monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+        with pytest.raises(RuntimeError) as exc_info:
+            importlib.reload(app_module)
+        assert "WEBHOOK_SECRET" in str(exc_info.value)
+
+        # Restore WEBHOOK_SECRET and test missing SESSION_SECRET
+        monkeypatch.setenv("WEBHOOK_SECRET", "whsec_test_secret_12345")
+        monkeypatch.delenv("SESSION_SECRET", raising=False)
+        with pytest.raises(RuntimeError) as exc_info2:
+            importlib.reload(app_module)
+        assert "SESSION_SECRET" in str(exc_info2.value)
+
+        # Restore both to maintain test suite isolation
+        monkeypatch.undo()
+        importlib.reload(app_module)

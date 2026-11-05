@@ -74,20 +74,27 @@ const parseNode = nodeMap.get('Parse & Validate Query');
 const parseCode = parseNode.parameters.jsCode;
 
 function runNodeVm(code, contextVars) {
+  const crypto = require('crypto');
   const sandbox = {
     ...contextVars,
     Date: Date,
     Math: Math,
     Error: Error,
     Boolean: Boolean,
-    console: console
+    console: console,
+    require: require,
+    crypto: crypto,
+    $env: {
+      WEBHOOK_SECRET: 'whsec_ci_test_sprints_e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3',
+      FASTAPI_API_KEY: 'sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a'
+    }
   };
   const script = new vm.Script(`(function() { ${code} })()`);
   const ctx = vm.createContext(sandbox);
   return script.runInContext(ctx);
 }
 
-// 3A. Valid payload without key generates fresh transaction ID
+// 3A. Valid payload without key generates fresh transaction ID & authentic HMAC signature
 const validPayload1 = {
   $json: {
     body: {
@@ -105,7 +112,10 @@ assert(parsedResult1.received_at, 'Missing received_at timestamp');
 assert(parsedResult1.start_time, 'Missing start_time millisecond timestamp for true E2E latency tracking');
 assert(parsedResult1.correlation_id && parsedResult1.correlation_id.startsWith('corr-'), 'Missing or invalid correlation_id');
 assert(parsedResult1.idempotency_key && parsedResult1.idempotency_key.startsWith('idemp-tx-'), 'Missing or invalid transaction idempotency_key');
-console.log('   [PASS] Generated collision-free transaction idempotency_key (idemp-tx-...) & start_time.');
+assert(parsedResult1.analyze_payload && parsedResult1.analyze_payload.includes('LRN-1019'), 'Missing or invalid analyze_payload');
+assert(parsedResult1.analyze_timestamp, 'Missing analyze_timestamp');
+assert(parsedResult1.analyze_signature && parsedResult1.analyze_signature.startsWith('sha256='), 'Missing or invalid HMAC-SHA256 signature (must start with sha256=)');
+console.log('   [PASS] Generated collision-free transaction idempotency_key & valid HMAC-SHA256 signature.');
 
 // 3B. Subsequent new student question generates distinct key (doesn't block new ticket after resolution)
 const validPayload2 = {

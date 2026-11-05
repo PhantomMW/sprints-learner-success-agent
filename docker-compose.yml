@@ -11,6 +11,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - SPRINTS_API_KEY=${SPRINTS_API_KEY}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - MAX_PAYLOAD_SIZE=${MAX_PAYLOAD_SIZE:-65536}
+      - REDIS_URL=${REDIS_URL:-}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
     restart: unless-stopped
 
   sprints-n8n:
@@ -25,7 +30,9 @@ services:
       - WEBHOOK_URL=http://localhost:5678/
       - FASTAPI_BASE_URL=http://sprints-ai-api:8000
       - FASTAPI_API_KEY=${FASTAPI_API_KEY:-${SPRINTS_API_KEY}}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
       - GENERIC_TIMEZONE=Africa/Cairo
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false

@@ -143,8 +143,19 @@ if not SPRINTS_API_KEY:
         "Please provide SPRINTS_API_KEY in your local .env file or host environment before starting the service."
     )
 
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", hashlib.sha256((SPRINTS_API_KEY + "-webhook-hmac-2026").encode()).hexdigest())
-SESSION_SECRET = os.environ.get("SESSION_SECRET", hashlib.sha256((SPRINTS_API_KEY + "-session-token-2026").encode()).hexdigest())
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
+if not WEBHOOK_SECRET:
+    raise RuntimeError(
+        "FATAL SECURITY CONFIGURATION: Mandatory environment variable 'WEBHOOK_SECRET' is not set! "
+        "Please provide WEBHOOK_SECRET in your local .env file or host environment before starting the service."
+    )
+
+SESSION_SECRET = os.environ.get("SESSION_SECRET")
+if not SESSION_SECRET:
+    raise RuntimeError(
+        "FATAL SECURITY CONFIGURATION: Mandatory environment variable 'SESSION_SECRET' is not set! "
+        "Please provide SESSION_SECRET in your local .env file or host environment before starting the service."
+    )
 
 api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -153,12 +164,19 @@ TRUSTED_PROXIES = {p.strip() for p in os.environ.get("TRUSTED_PROXIES", "127.0.0
 
 _rate_limit_history: Dict[str, List[float]] = defaultdict(list)
 
+import threading
+
+_rate_limit_lock = threading.Lock()
+_replay_lock = threading.Lock()
+_session_lock = threading.Lock()
+
 def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool:
     """
-    In-memory sliding window rate limiter per client IP address.
+    In-memory sliding window rate limiter per client IP address with Redis clustering support.
     Prunes timestamps older than 60 seconds and verifies request count < limit.
     Multi-worker architecture: For clustered multi-worker / multi-node deployments,
     seamlessly utilizes Redis token-bucket via REDIS_URL.
+    In production (ENVIRONMENT=production), supports RATE_LIMIT_FALLBACK=fail_closed.
     """
     redis_url = os.environ.get("REDIS_URL")
     if redis_url:
@@ -178,15 +196,19 @@ def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool
                 return False
             return True
         except Exception as e:
-            logger.warning(f"Redis rate limiter fallback to in-memory: {e}")
+            logger.warning(f"Redis rate limiter fallback notice: {e}")
+            if os.environ.get("ENVIRONMENT") == "production" and os.environ.get("RATE_LIMIT_FALLBACK") == "fail_closed":
+                logger.error("Production fail_closed active: rejecting traffic due to Redis unavailability.")
+                return False
 
-    now = time.time()
-    cutoff = now - 60.0
-    _rate_limit_history[client_ip] = [t for t in _rate_limit_history[client_ip] if t > cutoff]
-    if len(_rate_limit_history[client_ip]) >= limit:
-        return False
-    _rate_limit_history[client_ip].append(now)
-    return True
+    with _rate_limit_lock:
+        now = time.time()
+        cutoff = now - 60.0
+        _rate_limit_history[client_ip] = [t for t in _rate_limit_history[client_ip] if t > cutoff]
+        if len(_rate_limit_history[client_ip]) >= limit:
+            return False
+        _rate_limit_history[client_ip].append(now)
+        return True
 
 async def rate_limiter_dependency(request: Request):
     """
@@ -215,6 +237,53 @@ async def rate_limiter_dependency(request: Request):
 ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}
 REVOKED_SESSIONS: set = set()
 
+def save_session_state(jti: str, session_data: dict, ttl_seconds: int):
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            import redis
+            r = redis.from_url(redis_url)
+            r.set(f"sess:{jti}", json.dumps(session_data), ex=ttl_seconds)
+            return
+        except Exception as e:
+            logger.warning(f"Redis session write fallback: {e}")
+    with _session_lock:
+        ACTIVE_SESSIONS[jti] = session_data
+
+def is_session_revoked_or_missing(jti: str) -> bool:
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            import redis
+            r = redis.from_url(redis_url)
+            if r.exists(f"revoked_sess:{jti}"):
+                return True
+            if not r.exists(f"sess:{jti}"):
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"Redis session lookup fallback: {e}")
+    with _session_lock:
+        if jti in REVOKED_SESSIONS:
+            return True
+        if jti not in ACTIVE_SESSIONS:
+            return True
+        return False
+
+def record_session_revocation(jti: str, ttl_remaining: int = 7200):
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            import redis
+            r = redis.from_url(redis_url)
+            r.set(f"revoked_sess:{jti}", "1", ex=max(60, ttl_remaining))
+            r.delete(f"sess:{jti}")
+        except Exception as e:
+            logger.warning(f"Redis session revocation fallback: {e}")
+    with _session_lock:
+        REVOKED_SESSIONS.add(jti)
+        ACTIVE_SESSIONS.pop(jti, None)
+
 def create_session_token(subject: str = "operator", ttl_seconds: int = 7200) -> str:
     now = int(time.time())
     exp = now + ttl_seconds
@@ -224,7 +293,7 @@ def create_session_token(subject: str = "operator", ttl_seconds: int = 7200) -> 
     payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode('utf-8').rstrip('=')
     sig = hmac.new(SESSION_SECRET.encode('utf-8'), payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()
     token = f"{payload_b64}.{sig}"
-    ACTIVE_SESSIONS[jti] = {"sub": subject, "exp": exp}
+    save_session_state(jti, {"sub": subject, "exp": exp}, ttl_seconds)
     return token
 
 def verify_session_token(token: str) -> Optional[Dict[str, Any]]:
@@ -242,7 +311,7 @@ def verify_session_token(token: str) -> Optional[Dict[str, Any]]:
         padded = payload_b64 + ('=' * (4 - rem) if rem else '')
         payload = json.loads(base64.urlsafe_b64decode(padded).decode('utf-8'))
         jti = payload.get("jti")
-        if not jti or jti in REVOKED_SESSIONS:
+        if not jti or is_session_revoked_or_missing(jti):
             return None
         if time.time() > payload.get("exp", 0):
             return None
@@ -253,8 +322,8 @@ def verify_session_token(token: str) -> Optional[Dict[str, Any]]:
 def revoke_session_token(token: str) -> bool:
     payload = verify_session_token(token)
     if payload and "jti" in payload:
-        REVOKED_SESSIONS.add(payload["jti"])
-        ACTIVE_SESSIONS.pop(payload["jti"], None)
+        ttl = max(60, int(payload.get("exp", 0) - time.time()))
+        record_session_revocation(payload["jti"], ttl)
         return True
     return False
 
@@ -263,12 +332,52 @@ def revoke_session_token(token: str) -> bool:
 # ==============================================================================
 _seen_webhook_signatures: Dict[str, float] = {}
 
+def record_and_verify_replay_token(sig: str, timestamp_str: str) -> bool:
+    """
+    OWASP Replay Attack Defense with Atomic State:
+    If REDIS_URL is configured:
+        Executes atomic Redis SET key 1 NX EX 300.
+        Returns False if key already exists (atomic replay prevention across distributed workers).
+    Otherwise:
+        Uses a thread-safe mutex-locked dictionary with a 300s sliding window.
+    """
+    redis_url = os.environ.get("REDIS_URL")
+    cache_key = f"replay:{sig}:{timestamp_str}"
+    
+    if redis_url:
+        try:
+            import redis
+            r = redis.from_url(redis_url)
+            was_set = r.set(cache_key, "1", nx=True, ex=300)
+            if not was_set:
+                return False
+            return True
+        except Exception as e:
+            logger.warning(f"Redis replay check error, falling back to local thread-safe store: {e}")
+            if os.environ.get("ENVIRONMENT") == "production" and os.environ.get("RATE_LIMIT_FALLBACK") == "fail_closed":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Distributed security coordinator unavailable."
+                )
+
+    with _replay_lock:
+        now = time.time()
+        cutoff = now - 300.0
+        expired = [k for k, v in _seen_webhook_signatures.items() if v < cutoff]
+        for k in expired:
+            _seen_webhook_signatures.pop(k, None)
+            
+        if cache_key in _seen_webhook_signatures:
+            return False
+        _seen_webhook_signatures[cache_key] = now
+        return True
+
 def verify_hmac_sha256_signature(raw_body: bytes, signature_header: Optional[str], timestamp_str: Optional[str]) -> bool:
     """
     OWASP Webhook Security & Replay Attack Defense:
     1. Validates presence and format of HMAC-SHA256 signature (sha256=<hex>).
     2. Validates timestamp drift: Rejects any timestamp drifting > 300 seconds (5 min).
-    3. Replay attack rejection: Caches (sig, timestamp) pairs; duplicates within sliding window fail immediately.
+    3. Replay attack rejection: Atomic Redis SET NX EX 300 or thread-safe mutex-locked sliding window.
     4. Cryptographic constant-time comparison against computed HMAC-SHA256 over f'{timestamp}.{body}'.
     """
     if not signature_header or not signature_header.strip():
@@ -303,14 +412,7 @@ def verify_hmac_sha256_signature(raw_body: bytes, signature_header: Optional[str
     if sig.startswith("sha256="):
         sig = sig.split("=", 1)[1]
 
-    # Sliding window cache cleanup (older than 300s)
-    cutoff = now - 300.0
-    for k in list(_seen_webhook_signatures.keys()):
-        if _seen_webhook_signatures[k] < cutoff:
-            del _seen_webhook_signatures[k]
-
-    cache_key = f"{sig}:{timestamp_str}"
-    if cache_key in _seen_webhook_signatures:
+    if not record_and_verify_replay_token(sig, timestamp_str):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Webhook Security Error: Replay attack detected. This signed event payload has already been processed."
@@ -325,7 +427,6 @@ def verify_hmac_sha256_signature(raw_body: bytes, signature_header: Optional[str
             detail="Webhook Authentication Failed: Invalid HMAC-SHA256 signature."
         )
 
-    _seen_webhook_signatures[cache_key] = now
     return True
 
 async def verify_api_key(
@@ -337,10 +438,10 @@ async def verify_api_key(
     """
     Enforces API Key & Session Authentication with Rate Limiting.
     Accepts credentials via:
-    1. Header 'X-API-Key: <key>'
-    2. Header 'Authorization: Bearer <key_or_session_token>'
-    3. Header 'X-Session-Token: <token>'
-    4. Secure HttpOnly Cookie 'sprints_session_id'
+    1. Header 'X-API-Key: <key>' (Stateless, exempt from CSRF)
+    2. Header 'Authorization: Bearer <key_or_session_token>' (Stateless, exempt from CSRF)
+    3. Header 'X-Session-Token: <token>' (Stateless, exempt from CSRF)
+    4. Secure HttpOnly Cookie 'sprints_session_id' (Ambient credential: requires Double-Submit Anti-CSRF verification)
     5. Header 'X-Signature-SHA256' (HMAC-SHA256 Webhook Verification)
     Uses constant-time comparison (secrets.compare_digest) to prevent timing attacks.
     """
@@ -366,11 +467,33 @@ async def verify_api_key(
         if session:
             return x_session_token
 
-    # 4. Cookie 'sprints_session_id'
+    # 4. Cookie 'sprints_session_id' (Ambient browser credential - REQUIRES CSRF VERIFICATION)
     cookie_token = request.cookies.get("sprints_session_id")
     if cookie_token:
         session = verify_session_token(cookie_token)
         if session:
+            # Enforce Anti-CSRF verification on state-changing requests
+            if request.method.upper() in ["POST", "PUT", "DELETE", "PATCH"]:
+                # Check Origin header if present
+                origin = request.headers.get("origin")
+                if origin:
+                    orig_clean = origin.rstrip("/")
+                    valid_origin = any(
+                        orig_clean == o.rstrip("/") for o in allowed_origins
+                    ) or "localhost" in orig_clean or "127.0.0.1" in orig_clean
+                    if not valid_origin:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="CSRF Protection: Request Origin header violates cross-origin security policy."
+                        )
+                # Double-Submit Cookie CSRF Token Check
+                client_csrf = request.headers.get("X-CSRF-Token")
+                cookie_csrf = request.cookies.get("sprints_csrf_token")
+                if not client_csrf or not cookie_csrf or not secrets.compare_digest(client_csrf, cookie_csrf):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="CSRF Protection: Missing or invalid X-CSRF-Token header for session-authenticated request."
+                    )
             return cookie_token
 
     # 5. HMAC-SHA256 Webhook Signature
@@ -665,7 +788,7 @@ class SequencePredictionRequest(BaseModel):
 
 # Endpoints
 @app.get("/", response_class=HTMLResponse)
-def live_demo_dashboard():
+def live_demo_dashboard(request: Request, response: Response):
     """
     Live Interactive Demo Web Dashboard:
     Provides an interactive web interface for exploring the Sprints AI Agent:
@@ -674,11 +797,26 @@ def live_demo_dashboard():
     - PyTorch LSTM Capstone Trajectory Forecaster
     - Live System Health & Metrics
     """
+    is_cookie_secure = (
+        os.environ.get("ENVIRONMENT", "").lower() == "production"
+        or os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+    )
+    csrf_token = request.cookies.get("sprints_csrf_token") or secrets.token_hex(16)
     dashboard_html_path = os.path.join(project_root, "templates", "dashboard.html")
     if os.path.exists(dashboard_html_path):
         with open(dashboard_html_path, "r", encoding="utf-8") as f:
             html = f.read()
-            return HTMLResponse(content=html, status_code=200)
+            html_res = HTMLResponse(content=html, status_code=200)
+            html_res.set_cookie(
+                key="sprints_csrf_token",
+                value=csrf_token,
+                max_age=7200,
+                httponly=False,
+                samesite="lax",
+                secure=is_cookie_secure,
+                path="/"
+            )
+            return html_res
     return HTMLResponse(content="<h2>Sprints AI Agent Live Backend Running</h2><p>Visit <a href='/docs'>/docs</a> for Swagger documentation.</p>", status_code=200)
 
 
@@ -686,11 +824,11 @@ class LoginRequest(BaseModel):
     api_key: str = Field(..., min_length=1, example="sk_live_sprints_...")
 
 @app.post("/api/v1/auth/login")
-def login_session(req: LoginRequest, response: Response):
+def login_session(req: LoginRequest, request: Request, response: Response):
     """
     Secure Session Authentication:
-    Exchanges a valid API Key for a cryptographically signed HttpOnly Session Cookie
-    and Session Token. Eliminates storing raw API keys in browser storage.
+    Exchanges a valid API Key for a cryptographically signed HttpOnly Session Cookie.
+    Eradicates storing raw API keys or session tokens in client JSON/localStorage.
     """
     if not secrets.compare_digest(req.api_key.strip(), SPRINTS_API_KEY):
         raise HTTPException(
@@ -698,19 +836,33 @@ def login_session(req: LoginRequest, response: Response):
             detail="Authentication failed: Invalid API Key provided."
         )
     token = create_session_token()
+    is_cookie_secure = (
+        os.environ.get("ENVIRONMENT", "").lower() == "production"
+        or os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+    )
+    csrf_token = request.cookies.get("sprints_csrf_token") or secrets.token_hex(16)
     response.set_cookie(
         key="sprints_session_id",
         value=token,
         max_age=7200,
         httponly=True,
         samesite="lax",
-        secure=False
+        secure=is_cookie_secure,
+        path="/"
+    )
+    response.set_cookie(
+        key="sprints_csrf_token",
+        value=csrf_token,
+        max_age=7200,
+        httponly=False,
+        samesite="lax",
+        secure=is_cookie_secure,
+        path="/"
     )
     return {
         "status": "authenticated",
-        "session_token": token,
         "expires_in": 7200,
-        "detail": "Session successfully established. HttpOnly cookie and session token active."
+        "detail": "HttpOnly session cookie established."
     }
 
 @app.post("/api/v1/auth/logout")
@@ -724,7 +876,8 @@ def logout_session(request: Request, response: Response):
         token = auth_header.split(" ", 1)[1]
     if token:
         revoke_session_token(token)
-    response.delete_cookie("sprints_session_id")
+    response.delete_cookie("sprints_session_id", path="/")
+    response.delete_cookie("sprints_csrf_token", path="/")
     return {"status": "logged_out", "detail": "Session successfully terminated and revoked."}
 
 @app.get("/api/v1/auth/session")

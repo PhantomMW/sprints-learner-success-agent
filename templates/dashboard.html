@@ -993,9 +993,17 @@
       }
     }
 
+    function getCsrfToken() {
+      const match = document.cookie.match(new RegExp('(^| )sprints_csrf_token=([^;]+)'));
+      return match ? decodeURIComponent(match[2]) : '';
+    }
+
     async function logoutSession() {
       try {
-        await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        const csrf = getCsrfToken();
+        const headers = {};
+        if (csrf) headers['X-CSRF-Token'] = csrf;
+        await fetch('/api/v1/auth/logout', { method: 'POST', headers: headers, credentials: 'same-origin' });
         renderSessionState(false);
         showAlert('<strong>🔒 تم إنهاء الجلسة:</strong> تم تسجيل الخروج وإلغاء صلاحية الجلسة بنجاح.', 'info');
       } catch (e) {
@@ -1139,6 +1147,8 @@
         const headers = { 'Content-Type': 'application/json' };
         const key = getApiKey();
         if (key) headers['X-API-Key'] = key;
+        const csrf = getCsrfToken();
+        if (csrf) headers['X-CSRF-Token'] = csrf;
         const res = await fetch('/api/v1/analyze', {
           method: 'POST',
           headers: headers,
@@ -1230,6 +1240,8 @@
         const riskHeaders = { 'Content-Type': 'application/json' };
         const rKey = getApiKey();
         if (rKey) riskHeaders['X-API-Key'] = rKey;
+        const csrf = getCsrfToken();
+        if (csrf) riskHeaders['X-CSRF-Token'] = csrf;
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: riskHeaders,
@@ -1296,12 +1308,15 @@
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> جاري استشراف مشروع التخرج عبر الـ LSTM...';
 
       try {
+        const lstmHeaders = { 'Content-Type': 'application/json' };
+        const lKey = getApiKey();
+        if (lKey) lstmHeaders['X-API-Key'] = lKey;
+        const csrf = getCsrfToken();
+        if (csrf) lstmHeaders['X-CSRF-Token'] = csrf;
         const res = await fetch('/api/v1/predict_sequence', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': getApiKey()
-          },
+          headers: lstmHeaders,
+          credentials: 'same-origin',
           body: JSON.stringify({ learner_id: 'LRN-1002', quiz_scores: scores })
         });
 
