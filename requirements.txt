@@ -40,3 +40,6 @@ imageio>=2.30.0
 imageio-ffmpeg>=0.4.8
 nbformat>=5.9.0
 nbclient>=0.8.0
+
+# Testing Framework
+pytest>=7.4.0

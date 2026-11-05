@@ -106,3 +106,10 @@ class TestArabicNLPMetrics:
         dropout_res = deliberative_agent_router("مش قادر أكمل في البرنامج ومخنوق")
         assert dropout_res["routing_decision"] == "HUMAN_OPERATOR_ESCALATION"
         assert dropout_res["priority"] == "Critical"
+
+
+if __name__ == '__main__':
+    t = TestArabicNLPMetrics()
+    t.test_arabic_distress_benchmark_metrics()
+    t.test_contextual_ambiguity_words()
+    print("\n[SUCCESS] ALL ARABIC NLP BENCHMARK & AMBIGUITY TESTS PASSED 100%!")

@@ -44,7 +44,7 @@ jobs:
 
       - name: Sprint 4 - Egyptian Arabic Dialect NLP & Distress Metrics (P/R/F1 >= 0.90)
         run: |
-          pytest -v tests/test_arabic_nlp_metrics.py
+          python -m pytest -v tests/test_arabic_nlp_metrics.py
 
       - name: Sprint 4 - n8n Workflow Engine & JavaScript Code Verification
         run: |
