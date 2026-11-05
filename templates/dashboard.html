@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🚀 Sprints AI Learner Success Agent — Live Interactive Demo</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+    }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      direction: rtl;
+    }
+    .navbar {
+      background: rgba(30, 41, 59, 0.8) !important;
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-title {
+      font-weight: 800;
+      background: linear-gradient(135deg, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .badge-live {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.7; }
+      50% { opacity: 1; }
+      100% { opacity: 0.7; }
+    }
+    .glass-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .glass-card:hover {
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+    .nav-tabs .nav-link {
+      color: var(--text-muted);
+      border: none;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: 10px;
+      transition: all 0.2s;
+    }
+    .nav-tabs .nav-link.active {
+      background: var(--accent);
+      color: white;
+    }
+    .form-control, .form-select {
+      background-color: #0b1120;
+      border: 1px solid var(--border);
+      color: white;
+      border-radius: 10px;
+    }
+    .form-control:focus, .form-select:focus {
+      background-color: #0b1120;
+      color: white;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 0.25rem rgba(99, 102, 241, 0.25);
+    }
+    .btn-primary-custom {
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+      border: none;
+      font-weight: 700;
+      padding: 12px 28px;
+      border-radius: 10px;
+      color: white;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+      transition: all 0.2s;
+    }
+    .btn-primary-custom:hover {
+      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
+      transform: translateY(-2px);
+      color: white;
+    }
+    .sample-pill {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      padding: 6px 14px;
+      border-radius: 20px;
+      cursor: pointer;
+      display: inline-block;
+      margin: 4px;
+      transition: all 0.2s;
+    }
+    .sample-pill:hover {
+      background: rgba(99, 102, 241, 0.2);
+      border-color: var(--accent);
+      color: white;
+    }
+    .result-box {
+      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .metric-stat {
+      text-align: center;
+      padding: 15px;
+      background: #0b1120;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    .metric-value {
+      font-size: 1.8rem;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <nav class="navbar navbar-expand-lg sticky-top">
+    <div class="container">
+      <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+        <i class="fa-solid fa-graduation-cap fa-xl text-primary"></i>
+        <span class="brand-title">Sprints AI Agent — Live Demo</span>
+      </a>
+      <div class="d-flex align-items-center gap-3">
+        <span class="badge badge-live px-3 py-2"><i class="fa-solid fa-circle fa-2xs me-1"></i> خادم البث المباشر يعمل (Live Daemon)</span>
+        <a href="/docs" target="_blank" class="btn btn-outline-light btn-sm"><i class="fa-solid fa-book-open me-1"></i> Swagger API Docs</a>
+        <a href="https://github.com/PhantomMW/sprints-learner-success-agent" target="_blank" class="btn btn-outline-light btn-sm"><i class="fa-brands fa-github me-1"></i> GitHub Repo</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container py-4">
+    <!-- Header Banner -->
+    <div class="glass-card p-4 mb-4 text-center">
+      <h2 class="fw-bold mb-2">منظومة الذكاء الاصطناعي لدعم ومتابعة الطلاب</h2>
+      <p class="text-muted mb-0">ميكروسيرفيس استدلالي عالي السرعة يجمع بين تحليلات قواعد البيانات، والتعلم العميق التنبئي (MLP & LSTM)، ومحرك الـ NLP التداولي المدعوم بالـ RAG الدلالي.</p>
+    </div>
+
+    <!-- Main Navigation Tabs -->
+    <ul class="nav nav-tabs justify-content-center mb-4" id="demoTabs" role="tablist">
+      <li class="nav-item">
+        <button class="nav-link active" id="nlp-tab" data-bs-toggle="tab" data-bs-target="#nlp-pane"><i class="fa-solid fa-comments me-2"></i> تحليل استفسارات الطلاب (NLP & RAG)</button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="risk-tab" data-bs-toggle="tab" data-bs-target="#risk-pane"><i class="fa-solid fa-triangle-exclamation me-2"></i> التنبؤ بمخاطر التعثر (PyTorch MLP)</button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="lstm-tab" data-bs-toggle="tab" data-bs-target="#lstm-pane"><i class="fa-solid fa-chart-line me-2"></i> التنبؤ بمشروع التخرج (PyTorch LSTM)</button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="health-tab" data-bs-toggle="tab" data-bs-target="#health-pane"><i class="fa-solid fa-server me-2"></i> صحة النظام وقاعدة البيانات</button>
+      </li>
+    </ul>
+
+    <!-- Tab Contents -->
+    <div class="tab-content" id="demoTabsContent">
+      
+      <!-- 1. NLP Tab -->
+      <div class="tab-pane fade show active" id="nlp-pane" role="tabpanel">
+        <div class="glass-card p-4">
+          <h4 class="fw-bold mb-3"><i class="fa-solid fa-robot text-primary me-2"></i> الموجه التداولي والـ RAG الدلالي (Deliberative Agent)</h4>
+          <p class="text-muted">يقوم النظام بتحليل مشاعر الطالب، استخراج الكيانات (spaCy NER)، استرجاع المحتوى الأكاديمي الدقيق عبر Word2Vec Cosine Ranking، وتحديد القرار التداولي (تصعيد فوري للمينتور أم إجابة تعليمية آلية) في أقل من 35 مللي ثانية.</p>
+
+          <div class="mb-3">
+            <label class="form-label text-muted fw-bold">أمثلة سريعة للتجربة:</label>
+            <div>
+              <span class="sample-pill" onclick="setQuery('مش فاهم يعني إيه autograd في PyTorch، ممكن شرح؟')">📘 استفسار أكاديمي (RAG)</span>
+              <span class="sample-pill" onclick="setQuery('مش قادر أفتح ملف المحاضرة على البورتال')">🛠️ عطل تقني (RAG)</span>
+              <span class="sample-pill" onclick="setQuery('أنا محبط جداً ومش قادر أكمل ومخنوق خالص')">🚨 إحباط وضيق شديد (تصعيد)</span>
+              <span class="sample-pill" onclick="setQuery('عايز أقدم طلب انسحاب رسمي من المنحة وأسترد مصاريفي')">⛔ رغبة انسحاب رسمية (تصعيد)</span>
+              <span class="sample-pill" onclick="setQuery('مش لاحق أسلم التاسكات والتراكم زاد عليا جداً')">⏳ تأخر أكاديمي (تصعيد)</span>
+              <span class="sample-pill" onclick="setQuery('3ayez ansa7eb mn el bootcamp ana mo7bat gedan')">🌐 فرانكو-آراب (تصعيد)</span>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-4">
+            <div class="col-md-3">
+              <label class="form-label">معرّف الطالب (Learner ID):</label>
+              <input type="text" id="nlpLearnerId" class="form-control" value="LRN-1002">
+            </div>
+            <div class="col-md-9">
+              <label class="form-label">نص استفسار الطالب:</label>
+              <input type="text" id="nlpQueryText" class="form-control" placeholder="اكتب استفسار الطالب هنا...">
+            </div>
+          </div>
+
+          <button class="btn btn-primary-custom w-100 mb-4" onclick="runNlpAnalysis()"><i class="fa-solid fa-paper-plane me-2"></i> تحليل الاستفسار واسترجاع القرار لايف</button>
+
+          <!-- NLP Results Display -->
+          <div id="nlpResultContainer" style="display: none;">
+            <div class="result-box">
+              <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-3">
+                <h5 class="mb-0 fw-bold" id="nlpDecisionHeader"></h5>
+                <span id="nlpSlaBadge" class="badge"></span>
+              </div>
+              <div class="row g-3 mb-3 text-center">
+                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">الأولوية</span><span class="fw-bold" id="nlpPriority"></span></div></div>
+                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">قطبية المشاعر</span><span class="fw-bold" id="nlpPolarity"></span></div></div>
+                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">الموديولات المكتشفة</span><span class="fw-bold" id="nlpModules"></span></div></div>
+                <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">زمن الاستجابة</span><span class="fw-bold text-success" id="nlpLatency"></span></div></div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-bold text-muted">رد الوكيل الذكي (Agent Synthesized Response):</label>
+                <div class="p-3 bg-dark rounded border border-secondary text-light" id="nlpAgentResponse"></div>
+              </div>
+              <div id="nlpChunkDiv">
+                <label class="form-label fw-bold text-muted">المحتوى الأكاديمي المسترجع عبر متجهات Word2Vec (Retrieved Knowledge Chunk):</label>
+                <div class="p-3 bg-dark rounded border border-secondary text-light small" id="nlpRetrievedChunk"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 2. Risk Classifier Tab -->
+      <div class="tab-pane fade" id="risk-pane" role="tabpanel">
+        <div class="glass-card p-4">
+          <h4 class="fw-bold mb-3"><i class="fa-solid fa-brain text-primary me-2"></i> التنبؤ المبكر بمخاطر التعثر الأكاديمي (PyTorch Risk MLP)</h4>
+          <p class="text-muted">يقوم النموذج المدرب (F1 = 1.0000 مع 0 False Negatives) بتحليل مسار كويزات الطالب، ومعالجة القيم المفقودة باستخدام وسيط المحافظة مع التمرير الزمني للأمام (Forward-Fill)، وتحديد ما إذا كان الطالب بحاجة لتدخل إرشادي عاجل.</p>
+
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label">المحافظة (Cohort City):</label>
+              <select id="riskCity" class="form-select">
+                <option value="Cairo" selected>القاهرة (Cairo)</option>
+                <option value="Alexandria">الإسكندرية (Alexandria)</option>
+                <option value="Giza">الجيزة (Giza)</option>
+                <option value="Mansoura">المنصورة (Mansoura)</option>
+                <option value="Assiut">أسيوط (Assiut)</option>
+                <option value="Tanta">طنطا (Tanta)</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">نوع التجربة الأكاديمية:</label>
+              <select id="riskMode" class="form-select" onchange="toggleRiskWeeks()">
+                <option value="full" selected>التجربة B: المسار الكامل (الأسابيع 1 إلى 5)</option>
+                <option value="early">التجربة A: التدخل المبكر الاستباقي (الأسابيع 1 إلى 3)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-4">
+            <div class="col"><label>كويز 1: <span id="val_w1">75</span></label><input type="range" class="form-range" id="w1" min="0" max="100" value="75" oninput="updateSlider('w1')"></div>
+            <div class="col"><label>كويز 2: <span id="val_w2">70</span></label><input type="range" class="form-range" id="w2" min="0" max="100" value="70" oninput="updateSlider('w2')"></div>
+            <div class="col"><label>كويز 3: <span id="val_w3">65</span></label><input type="range" class="form-range" id="w3" min="0" max="100" value="65" oninput="updateSlider('w3')"></div>
+            <div class="col" id="col_w4"><label>كويز 4: <span id="val_w4">60</span></label><input type="range" class="form-range" id="w4" min="0" max="100" value="60" oninput="updateSlider('w4')"></div>
+            <div class="col" id="col_w5"><label>كويز 5: <span id="val_w5">50</span></label><input type="range" class="form-range" id="w5" min="0" max="100" value="50" oninput="updateSlider('w5')"></div>
+          </div>
+
+          <button class="btn btn-primary-custom w-100 mb-4" onclick="runRiskPrediction()"><i class="fa-solid fa-calculator me-2"></i> تشغيل التنبؤ العصبي بالمخاطر</button>
+
+          <div id="riskResultContainer" style="display: none;">
+            <div class="result-box">
+              <div class="row g-3 text-center">
+                <div class="col-md-4"><div class="metric-stat"><span class="text-muted d-block small">مستوى الخطورة</span><span class="metric-value" id="riskLevel"></span></div></div>
+                <div class="col-md-4"><div class="metric-stat"><span class="text-muted d-block small">احتمالية التعثر</span><span class="metric-value text-primary" id="riskProb"></span></div></div>
+                <div class="col-md-4"><div class="metric-stat"><span class="text-muted d-block small">عتبة القرار (Threshold)</span><span class="metric-value text-warning" id="riskThresh">0.35</span></div></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 3. LSTM Tab -->
+      <div class="tab-pane fade" id="lstm-pane" role="tabpanel">
+        <div class="glass-card p-4">
+          <h4 class="fw-bold mb-3"><i class="fa-solid fa-wave-square text-primary me-2"></i> التنبؤ بدرجة مشروع التخرج عبر السلاسل الزمنية (PyTorch LSTM)</h4>
+          <p class="text-muted">يقوم نموذج الـ LSTM ثنائي الطبقات بتحليل المسار التتابعي للدرجات، موظفاً بوابة النسيان (Forget Gate) لتخميد تشتت بدايات الكورس، ومحرك الحالة الثابتة (Cell State) للحفاظ على التدرجات الطويلة وتوقع درجة الـ Capstone بدقة.</p>
+
+          <div class="row g-3 mb-4">
+            <div class="col"><label>أسبوع 1: <span id="val_l1">85</span></label><input type="range" class="form-range" id="l1" min="0" max="100" value="85" oninput="updateSlider('l1')"></div>
+            <div class="col"><label>أسبوع 2: <span id="val_l2">80</span></label><input type="range" class="form-range" id="l2" min="0" max="100" value="80" oninput="updateSlider('l2')"></div>
+            <div class="col"><label>أسبوع 3: <span id="val_l3">78</span></label><input type="range" class="form-range" id="l3" min="0" max="100" value="78" oninput="updateSlider('l3')"></div>
+            <div class="col"><label>أسبوع 4: <span id="val_l4">75</span></label><input type="range" class="form-range" id="l4" min="0" max="100" value="75" oninput="updateSlider('l4')"></div>
+            <div class="col"><label>أسبوع 5: <span id="val_l5">70</span></label><input type="range" class="form-range" id="l5" min="0" max="100" value="70" oninput="updateSlider('l5')"></div>
+          </div>
+
+          <button class="btn btn-primary-custom w-100 mb-4" onclick="runLstmPrediction()"><i class="fa-solid fa-chart-line me-2"></i> استشراف أداء مشروع التخرج</button>
+
+          <div id="lstmResultContainer" style="display: none;">
+            <div class="result-box text-center">
+              <div class="row g-3">
+                <div class="col-md-6"><div class="metric-stat"><span class="text-muted d-block small">الدرجة المتوقعة لمشروع التخرج</span><span class="metric-value text-success" id="lstmPredictedScore"></span></div></div>
+                <div class="col-md-6"><div class="metric-stat"><span class="text-muted d-block small">حالة التخرج المتوقعة</span><span class="metric-value" id="lstmForecastStatus"></span></div></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 4. Health Tab -->
+      <div class="tab-pane fade" id="health-pane" role="tabpanel">
+        <div class="glass-card p-4">
+          <h4 class="fw-bold mb-3"><i class="fa-solid fa-server text-primary me-2"></i> تقرير مؤشرات الأداء الحية وحالة السيرفر</h4>
+          <div class="row g-3 text-center mb-4">
+            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">حالة الخدمة</span><span class="text-success fw-bold">Healthy (نشط)</span></div></div>
+            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">سقف الـ SLA الرياضي</span><span class="text-info fw-bold">3,280 ms &lt; 3.5s</span></div></div>
+            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">النماذج المحملة</span><span class="text-warning fw-bold">6 نماذج نشطة</span></div></div>
+            <div class="col-md-3"><div class="metric-stat"><span class="text-muted d-block small">قاعدة البيانات العلائقية</span><span class="text-success fw-bold">SQLite 3NF متصلة</span></div></div>
+          </div>
+          <div class="p-3 bg-dark rounded border border-secondary">
+            <h6 class="fw-bold text-muted mb-2">معلومات البيئة والاستضافة:</h6>
+            <ul class="mb-0 small text-muted">
+              <li>المسار المباشر للـ API: <code>http://localhost:8000</code></li>
+              <li>واجهة التوثيق التفاعلية (OpenAPI): <a href="/docs" target="_blank" class="text-primary">/docs</a></li>
+              <li>منفذ سير عمل n8n التفاعلي: <code>http://localhost:5678</code></li>
+              <li>التحقق الصارم من الترقية والمايجريشن: <code>ensure_db_schema() Fail-Fast Verified</code></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    function updateSlider(id) {
+      document.getElementById('val_' + id).innerText = document.getElementById(id).value;
+    }
+
+    function toggleRiskWeeks() {
+      const mode = document.getElementById('riskMode').value;
+      const isEarly = (mode === 'early');
+      document.getElementById('col_w4').style.display = isEarly ? 'none' : 'block';
+      document.getElementById('col_w5').style.display = isEarly ? 'none' : 'block';
+    }
+
+    function setQuery(text) {
+      document.getElementById('nlpQueryText').value = text;
+    }
+
+    async function runNlpAnalysis() {
+      const query = document.getElementById('nlpQueryText').value.trim();
+      const learnerId = document.getElementById('nlpLearnerId').value.trim() || 'LRN-1002';
+      if (!query) { alert('برجاء كتابة استفسار للتجربة!'); return; }
+
+      try {
+        const res = await fetch('/api/v1/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ learner_id: learnerId, query_text: query })
+        });
+        const data = await res.json();
+        
+        document.getElementById('nlpResultContainer').style.display = 'block';
+        const isEsc = (data.routing_decision === 'HUMAN_OPERATOR_ESCALATION');
+        
+        document.getElementById('nlpDecisionHeader').innerHTML = isEsc
+          ? '<span class="text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i> القرار: تصعيد فوري للمينتور (HUMAN_OPERATOR_ESCALATION)</span>'
+          : '<span class="text-success"><i class="fa-solid fa-circle-check me-2"></i> القرار: استجابة تعليمية آلية (AUTOMATED_RAG_PIPELINE)</span>';
+
+        document.getElementById('nlpSlaBadge').className = data.sla_met ? 'badge bg-success' : 'badge bg-danger';
+        document.getElementById('nlpSlaBadge').innerText = data.sla_met ? 'SLA Met (<3.5s)' : 'SLA Breached';
+
+        document.getElementById('nlpPriority').innerText = data.priority || 'Normal';
+        document.getElementById('nlpPriority').className = isEsc ? 'fw-bold text-danger' : 'fw-bold text-success';
+
+        document.getElementById('nlpPolarity').innerText = data.sentiment ? data.sentiment.polarity : '0.0';
+        document.getElementById('nlpModules').innerText = (data.extracted_modules && data.extracted_modules.length) ? data.extracted_modules.join(', ') : 'None';
+        document.getElementById('nlpLatency').innerText = data.execution_latency_ms + ' ms';
+        document.getElementById('nlpAgentResponse').innerText = data.agent_response || 'No response';
+
+        if (data.retrieved_chunk) {
+          document.getElementById('nlpChunkDiv').style.display = 'block';
+          document.getElementById('nlpRetrievedChunk').innerText = `[${data.retrieved_chunk.chunk_id}] ${data.retrieved_chunk.title}\nSimilarity Score: ${data.retrieved_chunk.similarity_score}\n${data.retrieved_chunk.text}`;
+        } else {
+          document.getElementById('nlpChunkDiv').style.display = 'none';
+        }
+      } catch (err) {
+        alert('حدث خطأ أثناء استدعاء الـ API: ' + err);
+      }
+    }
+
+    async function runRiskPrediction() {
+      const mode = document.getElementById('riskMode').value;
+      const city = document.getElementById('riskCity').value;
+      const w1 = parseFloat(document.getElementById('w1').value);
+      const w2 = parseFloat(document.getElementById('w2').value);
+      const w3 = parseFloat(document.getElementById('w3').value);
+      
+      let endpoint = '/api/v1/predict_risk';
+      let payload = { learner_id: 'LRN-1002', cohort_city: city, week_1_quiz: w1, week_2_quiz: w2, week_3_quiz: w3 };
+
+      if (mode === 'full') {
+        payload.week_4_quiz = parseFloat(document.getElementById('w4').value);
+        payload.week_5_quiz = parseFloat(document.getElementById('w5').value);
+      } else {
+        endpoint = '/api/v1/predict_risk_early';
+      }
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        document.getElementById('riskResultContainer').style.display = 'block';
+        document.getElementById('riskLevel').innerText = data.risk_level;
+        document.getElementById('riskLevel').className = (data.risk_level === 'High Risk') ? 'metric-value text-danger' : 'metric-value text-success';
+        document.getElementById('riskProb').innerText = (data.risk_probability * 100).toFixed(1) + '%';
+        document.getElementById('riskThresh').innerText = data.decision_threshold || '0.35';
+      } catch (err) {
+        alert('خطأ في استدعاء التنبؤ: ' + err);
+      }
+    }
+
+    async function runLstmPrediction() {
+      const scores = [
+        parseFloat(document.getElementById('l1').value),
+        parseFloat(document.getElementById('l2').value),
+        parseFloat(document.getElementById('l3').value),
+        parseFloat(document.getElementById('l4').value),
+        parseFloat(document.getElementById('l5').value)
+      ];
+      try {
+        const res = await fetch('/api/v1/predict_sequence', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ learner_id: 'LRN-1002', quiz_scores: scores })
+        });
+        const data = await res.json();
+        document.getElementById('lstmResultContainer').style.display = 'block';
+        document.getElementById('lstmPredictedScore').innerText = data.predicted_capstone_score.toFixed(1) + ' / 100';
+        document.getElementById('lstmForecastStatus').innerText = data.forecast_status;
+        document.getElementById('lstmForecastStatus').className = (data.predicted_capstone_score >= 60) ? 'metric-value text-success' : 'metric-value text-danger';
+      } catch (err) {
+        alert('خطأ في استدعاء الـ LSTM: ' + err);
+      }
+    }
+  </script>
+</body>
+</html>

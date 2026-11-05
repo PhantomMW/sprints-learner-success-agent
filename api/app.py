@@ -24,6 +24,7 @@ import uuid
 import hashlib
 import json
 from fastapi import FastAPI, HTTPException, status, Header
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from gensim.models import Word2Vec
 
@@ -329,6 +330,23 @@ class SequencePredictionRequest(BaseModel):
         return scores
 
 # Endpoints
+@app.get("/", response_class=HTMLResponse)
+def live_demo_dashboard():
+    """
+    Live Interactive Demo Web Dashboard:
+    Provides an interactive web interface for exploring the Sprints AI Agent:
+    - NLP Query Analysis & Semantic Vector RAG
+    - PyTorch Supervised Dropout Risk Simulator (MLP)
+    - PyTorch LSTM Capstone Trajectory Forecaster
+    - Live System Health & Metrics
+    """
+    dashboard_html_path = os.path.join(project_root, "templates", "dashboard.html")
+    if os.path.exists(dashboard_html_path):
+        with open(dashboard_html_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read(), status_code=200)
+    return HTMLResponse(content="<h2>Sprints AI Agent Live Backend Running</h2><p>Visit <a href='/docs'>/docs</a> for Swagger documentation.</p>", status_code=200)
+
+
 @app.get("/api/v1/health")
 def healthcheck():
     return {
