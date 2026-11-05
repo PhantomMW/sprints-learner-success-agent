@@ -48,6 +48,11 @@ jobs:
         run: |
           python tests/test_feature_parity.py
 
+      - name: Phase 2 - ML / DL Scientific Validation & Baseline Benchmarks (MLP, LSTM, ROC, Calibration)
+        run: |
+          python scripts/evaluate_benchmarks.py
+          python -m pytest -v tests/test_ml_dl_validation.py
+
       - name: Sprint 4 - Egyptian Arabic Dialect NLP & Distress Metrics (P/R/F1 >= 0.90)
         run: |
           python -m pytest -v tests/test_arabic_nlp_metrics.py
