@@ -53,6 +53,19 @@ jobs:
           python scripts/evaluate_benchmarks.py
           python -m pytest -v tests/test_ml_dl_validation.py
 
+      - name: Phase 3 - Egyptian Arabic NLP & Semantic Vector RAG Pipeline (Confusion Matrix, Polysemy, OOV Fallback)
+        run: |
+          python scripts/evaluate_nlp_benchmarks.py
+          python -m pytest -v tests/test_nlp_rag_evaluation.py
+
+      - name: Phase 4 - End-to-End Orchestration & Failure Recovery (DB Resilience, 20-Thread Race Condition)
+        run: |
+          python -m pytest -v tests/test_e2e_resilience_and_failures.py
+
+      - name: Phase 5 - Multi-Tier Concurrency & Scalability Benchmark (10 to 100 Workers)
+        run: |
+          python scripts/evaluate_performance_scalability.py
+
       - name: Sprint 4 - Egyptian Arabic Dialect NLP & Distress Metrics (P/R/F1 >= 0.90)
         run: |
           python -m pytest -v tests/test_arabic_nlp_metrics.py

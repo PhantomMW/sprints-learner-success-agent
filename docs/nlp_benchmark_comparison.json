@@ -1,0 +1,1020 @@
+{
+  "timestamp": "2026-11-05T17:45:00+02:00",
+  "dev_regression_metrics": {
+    "set_name": "Development Regression Suite",
+    "total": 26,
+    "tp": 12,
+    "fp": 0,
+    "fn": 0,
+    "tn": 14,
+    "precision": 1.0,
+    "recall": 1.0,
+    "specificity": 1.0,
+    "npv": 1.0,
+    "f1": 1.0,
+    "accuracy": 1.0,
+    "category_breakdown": {
+      "TECHNICAL_INQUIRY": {
+        "total": 9,
+        "accuracy": 1.0
+      },
+      "CURRICULUM_QUESTION": {
+        "total": 5,
+        "accuracy": 1.0
+      },
+      "EMOTIONAL_DISTRESS": {
+        "total": 6,
+        "accuracy": 1.0
+      },
+      "DROPOUT_INTENT": {
+        "total": 3,
+        "accuracy": 1.0
+      },
+      "URGENT_DISTRESS": {
+        "total": 2,
+        "accuracy": 1.0
+      },
+      "ACADEMIC_DELAY": {
+        "total": 1,
+        "accuracy": 1.0
+      }
+    },
+    "details": [
+      {
+        "text": "مش قادر أفتح ملف المحاضرة، ممكن تساعدني؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical: Cannot open lecture file"
+      },
+      {
+        "text": "مش قادر أحمل الفيديو بتاع السيشن التالتة",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical: Cannot download video"
+      },
+      {
+        "text": "مش قادر أنزل السلايدات من على البورتال",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical: Cannot download slides"
+      },
+      {
+        "text": "مش قادر أشغل كود PyTorch على جوبيتر نوت بوك",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical: Cannot run notebook code"
+      },
+      {
+        "text": "مش عارف أوصل لفايل الاسايمنت على المنصة",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical: Cannot find assignment file"
+      },
+      {
+        "text": "السيستم ساقط ومش عارف أسجل الحضور في الفورم",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical Outage: System down"
+      },
+      {
+        "text": "السيرفر ساقط ومفيش أي استجابة من المنصة",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical Outage: Server down"
+      },
+      {
+        "text": "اللينك ضايع من على الموقع ومش لاقيه خالص",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical: Missing link on website"
+      },
+      {
+        "text": "الملف ضايع مني ومش عارف أحمله تاني",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Technical: Missing file"
+      },
+      {
+        "text": "مش فاهم Gradient Descent، ممكن شرح؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Curriculum: Gradient descent explanation"
+      },
+      {
+        "text": "مش فاهم يعني إيه autograd في مكتبة PyTorch",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Curriculum: Autograd explanation"
+      },
+      {
+        "text": "ممكن توضيح للفرق بين Word2Vec و FastText؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Curriculum: Embedding comparison"
+      },
+      {
+        "text": "إزاي أحسب الـ cross entropy loss في الموديل؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Curriculum: Loss calculation"
+      },
+      {
+        "text": "طريقة عمل الـ LSTM forget gate إيه بالظبط؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Curriculum: LSTM forget gate"
+      },
+      {
+        "text": "أنا محبط جدًا ومش قادر أكمل",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Distress: Frustrated and cannot continue"
+      },
+      {
+        "text": "مخنوق جدًا وحاسس إني ضايع ومش فاهم حاجة في الكورس",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Distress: Overwhelmed and lost"
+      },
+      {
+        "text": "تعبت نفسيًا ومش هقدر أكمل بالشكل ده",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Distress: Mental exhaustion"
+      },
+      {
+        "text": "أنا ساقط ومحبط ومش نافع في الديب ليرنينج",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Distress: Feelings of failure"
+      },
+      {
+        "text": "حاسس إني فاشل وكل ما أذاكر أسقط في الكويزات",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Distress: Perceived failure in quizzes"
+      },
+      {
+        "text": "أنا ضايع خالص ومحتاج تدخل فوري من المينتور",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Distress: Completely lost"
+      },
+      {
+        "text": "أنا عايز أنسحب من الكورس",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Dropout: Intent to withdraw"
+      },
+      {
+        "text": "هسيب الكورس خلاص ومش مكمل",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Dropout: Leaving course"
+      },
+      {
+        "text": "عايز أقدم طلب انسحاب رسمي من المنحة",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Dropout: Official withdrawal request"
+      },
+      {
+        "text": "الحقوني، أنا هسيب الكورس ومحتاج مساعدة فورية",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "URGENT_DISTRESS",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Urgent Plea: Emergency plea and leaving"
+      },
+      {
+        "text": "ساعدوني ضروري هسقط والكويز هيقفل كمان ساعة",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "URGENT_DISTRESS",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Urgent Plea: About to fail quiz"
+      },
+      {
+        "text": "مش لاحق أسلم التاسكات والتراكم زاد عليا ومحبط",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "ACADEMIC_DELAY",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Academic Delay: Backlog with frustration"
+      }
+    ]
+  },
+  "holdout_test_metrics": {
+    "set_name": "Independent Holdout Evaluation Set",
+    "total": 44,
+    "tp": 22,
+    "fp": 0,
+    "fn": 0,
+    "tn": 22,
+    "precision": 1.0,
+    "recall": 1.0,
+    "specificity": 1.0,
+    "npv": 1.0,
+    "f1": 1.0,
+    "accuracy": 1.0,
+    "category_breakdown": {
+      "EMOTIONAL_DISTRESS": {
+        "total": 8,
+        "accuracy": 1.0
+      },
+      "DROPOUT_INTENT": {
+        "total": 7,
+        "accuracy": 1.0
+      },
+      "ACADEMIC_DELAY": {
+        "total": 3,
+        "accuracy": 1.0
+      },
+      "URGENT_DISTRESS": {
+        "total": 4,
+        "accuracy": 1.0
+      },
+      "TECHNICAL_INQUIRY": {
+        "total": 15,
+        "accuracy": 1.0
+      },
+      "CURRICULUM_QUESTION": {
+        "total": 7,
+        "accuracy": 1.0
+      }
+    },
+    "details": [
+      {
+        "text": "بجد مش قادر أستوعب الـ backprop وحاسس إني غبي",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Self-doubt and despair"
+      },
+      {
+        "text": "الدرجات نازلة جدًا وأنا متدمر نفسيًا وخايف أسقط",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Grade anxiety and trauma"
+      },
+      {
+        "text": "تعبت من المذاكرة بدون فايدة وشكلي هسيب كل حاجة",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Burnout with intent to quit"
+      },
+      {
+        "text": "الكورس سريع أوي عليا ومش ملاحق أي حاجة ومحبط خالص",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "ACADEMIC_DELAY",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Fast pace distress"
+      },
+      {
+        "text": "أنا ساقطططط ومحبط ومش عارف أعمل إيه في حياتي",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Typo elongation with distress"
+      },
+      {
+        "text": "أنا مش هقدر أكمل خلاص طاقتي نفدت",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Depleted energy / burnout"
+      },
+      {
+        "text": "مش قادر أستحمل ضغط التقييمات ومحبط لأقصى درجة ومخنوق",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Severe evaluation frustration"
+      },
+      {
+        "text": "حاسس إني فاشل ومش نافع في الكورس خالص",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Imposter syndrome and failure feelings"
+      },
+      {
+        "text": "هل في إمكانية أوقف الكورس وأسحب فلوسي؟",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Formal refund & exit intent"
+      },
+      {
+        "text": "أنا معنديش وقت أكمل، عايز ألغي تسجيلي في المنحة",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Scholarship cancellation request"
+      },
+      {
+        "text": "عايز أنسحب من الكورس رسميًا عشان ظروف خاصة",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Formal withdrawal due to personal reasons"
+      },
+      {
+        "text": "نويت أنسحب خلاص ومفيش داعي أكمل باقي الموديولات",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Firm withdrawal resolution"
+      },
+      {
+        "text": "يا جماعة الحقوني الاسايمنت هيقفل وأنا مش فاهم حاجة وهسقط",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "URGENT_DISTRESS",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Deadline panic + failure fear"
+      },
+      {
+        "text": "ساعدوني ضروري هسقط في امتحان بكرة ومحتاج مينتور فورًا",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "URGENT_DISTRESS",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Imminent exam failure plea"
+      },
+      {
+        "text": "كارثة يا شباب مش عارف أسلم التاسك النهائي والوقت خلص",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "URGENT_DISTRESS",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Emergency final task deadline panic"
+      },
+      {
+        "text": "التاسكات متراكمة عليا ومش لاحق أخلص وعايز مساعدة مينتور",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "ACADEMIC_DELAY",
+        "pred_category": "ACADEMIC_DELAY",
+        "outcome": "TP",
+        "label": "Backlog of assignments seeking mentor plan"
+      },
+      {
+        "text": "متاخر في الكويزات كلها وضايع ومحتاج جلسة دعم ضروري",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "ACADEMIC_DELAY",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Quiz backlog and lost status"
+      },
+      {
+        "text": "3ayez ansa7eb mn el bootcamp ana mo7bat gedan",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Franco: Withdrawal and frustration"
+      },
+      {
+        "text": "ana daye3 w msh ader akmel el tasks khales",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Franco: Lost and cannot complete"
+      },
+      {
+        "text": "el kwayz sa3b awy w has2at keda sa3doni bsor3a",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "URGENT_DISTRESS",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Franco: Urgent quiz panic"
+      },
+      {
+        "text": "msh hakamel el track keda, aseeb el course a7san",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "DROPOUT_INTENT",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Franco: Course dropout resolution"
+      },
+      {
+        "text": "fashil w mo7bat gedan w ta2ty kholset",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "EMOTIONAL_DISTRESS",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Franco: Depleted energy and failure"
+      },
+      {
+        "text": "اللينك مش بيفتح معايا وجايب 404",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "404 broken link"
+      },
+      {
+        "text": "الفيديو مش راضي يشتغل وفاضل شوية على الكويز",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Video player issue"
+      },
+      {
+        "text": "حملت ملف المحاضرة وزعلان إنه مش شغال معايا",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "File corrupted with mild sorrow word"
+      },
+      {
+        "text": "مش عارف أعمل install لـ spacy على جهازي ممكن خطوات التسطيب؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Library installation trouble"
+      },
+      {
+        "text": "الصوت في الميتنج مش واضح ممكن تسجيل السيشن؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Meeting audio quality"
+      },
+      {
+        "text": "المنصة بطيئة شوية النهاردة بس شغال عادي",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Platform latency inquiry"
+      },
+      {
+        "text": "مش قادر أفتح ملف الداتا سيت على جوجل كولاب",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Dataset open inability on Colab"
+      },
+      {
+        "text": "مش قادر أنزل ملف التست على اللاب بتاعي",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Test file download inability"
+      },
+      {
+        "text": "الكود بيطلع خطأ في الأبعاد shape mismatch إزاي أصلحه؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Code dimension error"
+      },
+      {
+        "text": "الملف ضايع مني على الهارد ومحتاج اللينك من جديد",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Local file lost requesting link"
+      },
+      {
+        "text": "البورتال ساقط ومش عارف أدخل على صفحة الكويز",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Portal server outage"
+      },
+      {
+        "text": "السيستم ساقط والنت كمان واقع عندي",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "System downtime notice"
+      },
+      {
+        "text": "اللينك ضايع من على السيرفر وواقف مكاني",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Missing link on server"
+      },
+      {
+        "text": "عندي ضغط امتحانات في الكلية الأسبوع ده، إيه أهم جزء أركز عليه في المنهج؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "College exam pressure prioritizing study"
+      },
+      {
+        "text": "الوقت ضيق شوية عشان الشغل، تنصحني أذاكر كام ساعة يوميًا؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Work schedule advice without dropout"
+      },
+      {
+        "text": "حاسس بضغط امتحانات بس حابب أكمل، إزاي أنظم وقت المذاكرة؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Exam pressure but motivated to continue"
+      },
+      {
+        "text": "el link bta3 el lecture msh shaghal mmkn link gdeed?",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Franco: Broken lecture link"
+      },
+      {
+        "text": "msh 3aref a7amel el assignment mn 3ala el portal",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "TECHNICAL_INQUIRY",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Franco: Cannot download assignment"
+      },
+      {
+        "text": "ezay a7seb el f1 score bl pandas w sklearn?",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Franco: F1 calculation in pandas"
+      },
+      {
+        "text": "هو ليه بنستخدم learning rate صغير في الـ adam optimizer؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Adam learning rate rationale"
+      },
+      {
+        "text": "ممكن شرح مبسط لمفهوم vanishing gradient؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Vanishing gradient concept"
+      },
+      {
+        "text": "معاد تسليم بروجكت الـ NLP يوم إيه بالظبط؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "CURRICULUM_QUESTION",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Project deadline inquiry"
+      }
+    ]
+  },
+  "real_world_metrics": {
+    "set_name": "Anonymized Real-World Chat Set",
+    "total": 30,
+    "tp": 14,
+    "fp": 0,
+    "fn": 0,
+    "tn": 16,
+    "precision": 1.0,
+    "recall": 1.0,
+    "specificity": 1.0,
+    "npv": 1.0,
+    "f1": 1.0,
+    "accuracy": 1.0,
+    "category_breakdown": {
+      "UNKNOWN": {
+        "total": 30,
+        "accuracy": 1.0
+      }
+    },
+    "details": [
+      {
+        "text": "سلام عليكم، أنا بقالي ٣ أيام بحاول في كود التنسورز ومش طالع معايا غير errors وحقيقي أعصابي باظت ومش قادر أكمل كده",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Multi-day struggle with burnout"
+      },
+      {
+        "text": "لو سمحتوا أنا عايزة أعرف إزاي أقدم على اعتذار رسمي أو انسحاب من المنحة عشان جالي ظرف عائلي ومش هقدر ألتزم",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Formal withdrawal due to personal situation"
+      },
+      {
+        "text": "يا جماعة حد يلحقني بجد الكويز هيقفل كمان ٤٠ دقيقة واللاب توب هنج وكل إجاباتي طارت وهسقط كده",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Urgent deadline panic + tech freeze + fear of failing"
+      },
+      {
+        "text": "بصراحة الشرح سريع جداً وأنا حاسس إني متأخر عن كل الدفعة ومستوايا ضعيف أوي ومش عارف أعمل إيه ومحبط",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Fast pace with imposter syndrome and frustration"
+      },
+      {
+        "text": "أنا طاقتي خلصت من ضغط التاسكات مع الشغل وبفكر جدياً أسيب الكورس ومكملش باقي الأسابيع",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Depleted energy considering dropping out"
+      },
+      {
+        "text": "ana bged daye3 gedan fel deep learning w msh 3aref a3mel eh fe el project w mo7bat khales",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Franco chat: lost and frustrated in DL project"
+      },
+      {
+        "text": "يا بشمهندس بالله عليك محتاج سيشن ضروري مع المينتور علشان خلاص فاضل تكه وهسيب التراك",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Urgent mentor session request on verge of quitting"
+      },
+      {
+        "text": "الدرجات في كويز ٣ وحشة جداً وأنا خايف أسقط وأفقد المنحة، محتاج خطة تعويض ضروري",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Low grade fear of failing scholarship with recovery plan request"
+      },
+      {
+        "text": "3ayez a3raf ezay a2dem 3ala refund le masareef el tasgeel 3ashan msh hakamel",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "DROPOUT_INTENT",
+        "outcome": "TP",
+        "label": "Franco: refund and exit request"
+      },
+      {
+        "text": "تعبت نفسياً من كتر المحاولات الفاشلة وحاسس إني مش نافع في المجال ده خالص",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Severe psychological fatigue and inadequacy"
+      },
+      {
+        "text": "مخنوق جداً ومش مستوعب الـ backpropagation خالص وحاسس إني بضيع وقتي",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Overwhelmed and feeling of wasting time"
+      },
+      {
+        "text": "التاسكات متراكمة عليا من أسبوعين ومش لاحق أخلص وعايز مساعدة في جدولة المذاكرة",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "ACADEMIC_DELAY",
+        "outcome": "TP",
+        "label": "2-week backlog seeking scheduling mentor help"
+      },
+      {
+        "text": "يا شباب الحقوني الموديل مش راضي يتعلم والـ loss بيكبر ومفاضلش غير ساعتين ع الديدلاين وهسقط",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "URGENT_DISTRESS",
+        "outcome": "TP",
+        "label": "Exploding loss near deadline with failure fear"
+      },
+      {
+        "text": "msh ader akmel keda el dof3a kolaha sab2any w ana fashil w mo7bat",
+        "expected_escalate": true,
+        "pred_escalate": true,
+        "expected_category": "UNKNOWN",
+        "pred_category": "EMOTIONAL_DISTRESS",
+        "outcome": "TP",
+        "label": "Franco: lagging behind with failure feelings"
+      },
+      {
+        "text": "مساء الخير، هو في تسجيل لمحاضرة يوم التلات اللي فاتت عشان النت كان فاصل عندي؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Routine recording request due to past net outage"
+      },
+      {
+        "text": "مش قادر أفتح ملف الـ notebook على جوجل كولاب بيطلعلي runtime error ممكن مساعدة؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Colab notebook runtime error"
+      },
+      {
+        "text": "هو إيه الفرق في الاستخدام العملي بين torch.reshape و torch.view؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Curriculum concept difference"
+      },
+      {
+        "text": "المنصة بطيئة شوية معايا بس دخلت وسجلت الحضور خلاص شكراً",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Platform slowness resolved self-sufficiently"
+      },
+      {
+        "text": "عندي ضغط امتحانات في كليتي الأسبوع ده، تنصحوني أركز على أنهي أجزاء في موديول الـ NLP؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "College exam pressure prioritizing study strategy"
+      },
+      {
+        "text": "الفيديو بتاع السيشن التانية مش راضي يشتغل عندي، هل في لينك بديل على درايف؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Broken video seeking alternate Drive link"
+      },
+      {
+        "text": "السيرفر ساقط حالياً ولا المشكلة عندي في الراوتر؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Server status check with colloquial 'ساقط'"
+      },
+      {
+        "text": "ازاي أحسب الـ confusion matrix باستخدام scikit-learn؟ ممكن مثال بسيط؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Sklearn syntax example request"
+      },
+      {
+        "text": "هو معاد تسليم البروجكت يوم الخميس الساعة ١١:٥٩ مساءً ولا الجمعة الصبح؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Project deadline timing clarification"
+      },
+      {
+        "text": "el assignment bta3 el week 2 byfta7 emta 3ala el portal?",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Franco: assignment opening time inquiry"
+      },
+      {
+        "text": "مش عارف أعمل git push من الـ terminal عشان بيطلب personal access token",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Git push credential inquiry"
+      },
+      {
+        "text": "الوقت ضيق في نص الأسبوع عشان الدوام بس بعوض يوم الجمعة والسبت، كدة تمام؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Weekend study schedule inquiry"
+      },
+      {
+        "text": "ممكن شرح إضافي لجزئية الـ cross entropy loss عشان لسه مش واضحة أوي بالنسبة لي؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "CURRICULUM_QUESTION",
+        "outcome": "TN",
+        "label": "Curriculum concept clarification"
+      },
+      {
+        "text": "الملف ضايع من عندي على الجهاز ممكن رابط التحميل من على البورتال؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "TECHNICAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Local file misplaced asking for download link"
+      },
+      {
+        "text": "kood el linear regression shaghal tamam bs 3ayez a3raf ezay a7seb el r2 score",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Franco: curriculum syntax inquiry for R2 score"
+      },
+      {
+        "text": "هو إحنا مطالبين نستخدم GPU في تدريب الموديل ولا الـ CPU كافي لتاسك بكرة؟",
+        "expected_escalate": false,
+        "pred_escalate": false,
+        "expected_category": "UNKNOWN",
+        "pred_category": "GENERAL_INQUIRY",
+        "outcome": "TN",
+        "label": "Hardware requirements question for task"
+      }
+    ]
+  },
+  "semantic_rag_metrics": {
+    "total_test_queries": 10,
+    "top1_accuracy": 0.7,
+    "mrr": 0.725,
+    "mean_similarity": 0.9367,
+    "min_similarity": 0.8767,
+    "max_similarity": 0.9897,
+    "oov_rejection_success": true,
+    "oov_fallback_id": "CHK-FALLBACK-01",
+    "oov_fallback_title": "General Sprints Support & Academic Advising"
+  }
+}
