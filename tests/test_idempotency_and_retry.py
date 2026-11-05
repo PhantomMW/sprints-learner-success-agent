@@ -137,6 +137,46 @@ class TestIdempotencyAndRetry:
         error_detail = res2.json().get("detail", "")
         assert "Idempotency key collision" in error_detail or "different request payload" in error_detail
 
+    def test_idempotency_payload_conflict_on_attribute_changes(self, client):
+        """
+        P0 Security Check:
+        Verifies that payload hash covers ALL significant ticket attributes.
+        If a client sends an existing Idempotency-Key with identical text/learner
+        but altered priority, module, or sentiment, it MUST return HTTP 409 Conflict.
+        """
+        shared_key = f"idemp-attr-conflict-{uuid.uuid4().hex[:10]}"
+        base_payload = {
+            "learner_id": "LRN-1002",
+            "query_text": "I am struggling with PyTorch neural network autograd.",
+            "module_id": "MOD-201",
+            "priority": "High",
+            "sentiment_polarity": -0.65,
+            "sentiment_subjectivity": 0.85,
+            "idempotency_key": shared_key
+        }
+
+        # Step 1: Initial submission -> 200 OK
+        res1 = client.post("/api/v1/tickets/escalate", json=base_payload)
+        assert res1.status_code == 200
+
+        # Step 2: Same key, but altered priority (High -> Critical)
+        p_priority = base_payload.copy()
+        p_priority["priority"] = "Critical"
+        res2 = client.post("/api/v1/tickets/escalate", json=p_priority)
+        assert res2.status_code == 409, f"Expected 409 on priority alteration, got {res2.status_code}"
+
+        # Step 3: Same key, but altered sentiment polarity (-0.65 -> 0.10)
+        p_sentiment = base_payload.copy()
+        p_sentiment["sentiment_polarity"] = 0.10
+        res3 = client.post("/api/v1/tickets/escalate", json=p_sentiment)
+        assert res3.status_code == 409, f"Expected 409 on sentiment alteration, got {res3.status_code}"
+
+        # Step 4: Same key, but altered module (MOD-201 -> MOD-101)
+        p_module = base_payload.copy()
+        p_module["module_id"] = "MOD-101"
+        res4 = client.post("/api/v1/tickets/escalate", json=p_module)
+        assert res4.status_code == 409, f"Expected 409 on module alteration, got {res4.status_code}"
+
     def test_database_migration_fail_fast_and_verification(self):
         """
         P0 Database Migration & Resilience Check:

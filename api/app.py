@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
 import uuid
 import hashlib
+import json
 from fastapi import FastAPI, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from gensim.models import Word2Vec
@@ -383,6 +384,32 @@ def analyze_learner_query(
         "sla_met": execution_latency_ms < 3500.0
     }
 
+def compute_payload_hash(
+    learner_id: str,
+    query_text: str,
+    module_id: Optional[str] = None,
+    priority: Optional[str] = None,
+    status_val: Optional[str] = None,
+    sentiment_polarity: Optional[float] = None,
+    sentiment_subjectivity: Optional[float] = None
+) -> str:
+    """
+    Computes deterministic SHA-256 fingerprint over all effective ticket payload attributes
+    using canonical sorted JSON serialization.
+    Ensures that priority, sentiment, and module changes under the same key are caught as conflicts.
+    """
+    canonical_payload = {
+        "learner_id": str(learner_id).strip(),
+        "query_text": str(query_text).strip(),
+        "module_id": str(module_id).strip() if module_id else None,
+        "priority": str(priority).strip() if priority else None,
+        "status": str(status_val).strip() if status_val else None,
+        "sentiment_polarity": round(float(sentiment_polarity), 4) if sentiment_polarity is not None else None,
+        "sentiment_subjectivity": round(float(sentiment_subjectivity), 4) if sentiment_subjectivity is not None else None
+    }
+    canonical_json = json.dumps(canonical_payload, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(canonical_json.encode('utf-8')).hexdigest()
+
 @app.post("/api/v1/tickets/escalate")
 def escalate_ticket_to_db(
     req: TicketEscalationRequest,
@@ -401,7 +428,15 @@ def escalate_ticket_to_db(
     corr_id = req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
     idemp_key = req.idempotency_key or idempotency_key_header
     ticket_id = f"TCK-ESC-{uuid.uuid4().hex[:12].upper()}"
-    payload_hash = hashlib.sha256(f"{req.learner_id}:{req.query_text}".encode('utf-8')).hexdigest()
+    payload_hash = compute_payload_hash(
+        learner_id=req.learner_id,
+        query_text=req.query_text,
+        module_id=req.module_id,
+        priority=req.priority,
+        status_val=req.status,
+        sentiment_polarity=req.sentiment_polarity,
+        sentiment_subjectivity=req.sentiment_subjectivity
+    )
     
     resolved_mod = None
     try:
@@ -431,9 +466,13 @@ def escalate_ticket_to_db(
                 existing_key_ticket = cur.fetchone()
                 if existing_key_ticket:
                     # Idempotency Conflict Detection: Same key used with DIFFERENT payload!
-                    existing_hash = existing_key_ticket['payload_hash'] or hashlib.sha256(
-                        f"{existing_key_ticket['learner_id']}:{existing_key_ticket['query_text']}".encode('utf-8')
-                    ).hexdigest()
+                    existing_hash = existing_key_ticket['payload_hash'] or compute_payload_hash(
+                        learner_id=existing_key_ticket['learner_id'],
+                        query_text=existing_key_ticket['query_text'],
+                        module_id=existing_key_ticket['module_id'],
+                        priority=existing_key_ticket['priority'],
+                        status_val=existing_key_ticket['status']
+                    )
                     if existing_hash != payload_hash:
                         logger.warning(f"[{corr_id}] Idempotency key conflict: key '{idemp_key}' was previously used with a different payload!")
                         raise HTTPException(
@@ -525,9 +564,13 @@ def escalate_ticket_to_db(
                     """, (idemp_key,))
                     winning = cur_dup.fetchone()
                     if winning:
-                        winning_hash = winning['payload_hash'] or hashlib.sha256(
-                            f"{winning['learner_id']}:{winning['query_text']}".encode('utf-8')
-                        ).hexdigest()
+                        winning_hash = winning['payload_hash'] or compute_payload_hash(
+                            learner_id=winning['learner_id'],
+                            query_text=winning['query_text'],
+                            module_id=winning['module_id'],
+                            priority=winning['priority'],
+                            status_val=winning['status']
+                        )
                         if winning_hash != payload_hash:
                             raise HTTPException(
                                 status_code=status.HTTP_409_CONFLICT,

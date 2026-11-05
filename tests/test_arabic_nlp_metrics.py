@@ -26,7 +26,8 @@ from nlp_pipeline import (
     deliberative_agent_router,
     evaluate_arabic_distress_benchmark,
     evaluate_arabic_dev_benchmark,
-    evaluate_arabic_holdout_test_set
+    evaluate_arabic_holdout_test_set,
+    evaluate_arabic_anonymized_real_world
 )
 
 class TestArabicNLPMetrics:
@@ -54,6 +55,18 @@ class TestArabicNLPMetrics:
         assert metrics["recall"] >= 0.90, f"Holdout Recall target (>= 0.90) breached: {metrics['recall']:.4f}"
         assert metrics["f1"] >= 0.90, f"Holdout F1-Score target (>= 0.90) breached: {metrics['f1']:.4f}"
         assert metrics["accuracy"] >= 0.90, f"Holdout Accuracy target (>= 0.90) breached: {metrics['accuracy']:.4f}"
+
+    def test_arabic_anonymized_real_world_benchmark(self):
+        """
+        Evaluates the 30-case authentic anonymized real-world student chat set.
+        Methodological separation: Evaluated strictly without rule tweaking to assess honest out-of-distribution generalization.
+        Asserts Precision >= 0.90, Recall >= 0.80, F1 >= 0.88, Accuracy >= 0.88.
+        """
+        metrics = evaluate_arabic_anonymized_real_world()
+        assert metrics["precision"] >= 0.90, f"Precision target breached: {metrics['precision']:.4f}"
+        assert metrics["recall"] >= 0.80, f"Recall target breached: {metrics['recall']:.4f}"
+        assert metrics["f1"] >= 0.88, f"F1-Score target breached: {metrics['f1']:.4f}"
+        assert metrics["accuracy"] >= 0.88, f"Accuracy target breached: {metrics['accuracy']:.4f}"
 
     @pytest.mark.parametrize("query,expected_decision,expected_priority,expected_cat", [
         # Scenario 1: Routine educational question (Gradient Descent explanation -> RAG)

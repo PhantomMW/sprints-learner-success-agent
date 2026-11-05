@@ -13,7 +13,7 @@
 [![spaCy](https://img.shields.io/badge/spaCy-3.8%20NER-09A3D5?style=for-the-badge&logo=spacy&logoColor=white)](https://spacy.io/)
 [![Python](https://img.shields.io/badge/Python-3.10-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 <br/>
-[![Release](https://img.shields.io/badge/Release-v1.4.0-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.4.0)
+[![Release](https://img.shields.io/badge/Release-v1.5.0-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.5.0)
 [![CI Pipeline](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml)
 [![F1-Score](https://img.shields.io/badge/F1_Score-1.0000_(Target_%E2%89%A5_0.82)-success?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
 [![Latency SLA](https://img.shields.io/badge/Latency-154ms_(SLA_%3C_3.5s)-blueviolet?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
@@ -25,7 +25,7 @@
   <a href="#-acceptance-criteria-verification-matrix"><b>Quality Bar & Rubric</b></a> •
   <a href="#-quickstart--execution-guide"><b>Quickstart</b></a> •
   <a href="#-capstone-presentation--video-walkthrough"><b>Reports & Demo</b></a> •
-  <a href="https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.4.0"><b>Download Release Assets</b></a>
+  <a href="https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.5.0"><b>Download Release Assets</b></a>
 </p>
 
 </div>
@@ -155,14 +155,14 @@ erDiagram
 | **spaCy NER Benchmark (50 Samples)** | Module & Date Extraction | **Module F1: 0.8125 \| Date F1: 0.9091** | 🟢 **PASSED** |
 | **Word2Vec vs FastText OOV Test** | Empirical Benchmark | Tested: Word2Vec KeyError on typos vs FastText n-grams | 🟢 **PASSED** |
 | **Semantic Vector RAG** | Dense Vector Retrieval | Cosine similarity ranking over syllabus vectors | 🟢 **PASSED** |
-| **Egyptian Arabic Dialect NLP (Dual Split)** | $\ge 0.90$ Precision & Recall on Unseen Data | **Dev F1: 1.0000 \| Holdout Unseen (44 Cases) F1: 1.0000 (P: 1.0000, R: 1.0000)** | 🟢 **ROBUST GENERALIZATION & REGRESSION PROOF** |
+| **Egyptian Arabic Dialect NLP (3-Tier Benchmark)** | $\ge 0.90$ Precision & Recall on Unseen Data | **Tier 1 (Dev): 1.0000 \| Tier 2 (Targeted 44 Cases): 1.0000 \| Tier 3 (Anonymized Authentic Chat 30 Cases, Untweaked): F1 = 0.9231 (P: 1.00, R: 0.857, Acc: 0.933)** | 🟢 **ROBUST GENERALIZATION & METHODOLOGICAL INTEGRITY** |
 | **Technical vs Distress Disambiguation** | Prevent false escalation of technical tasks | Tested: 'مش قادر أفتح الملف' & 'السيستم ساقط' -> RAG (0 FP) | 🟢 **PASSED** |
-| **Idempotency Key & DB UNIQUE Constraint** | Dedicated Key & Concurrent Deduplication | Tested with 10 concurrent threads & SQLite UNIQUE index | 🟢 **PASSED (RACE CONDITION PROOF)** |
-| **Payload Conflict Detection (HTTP 409)** | Reject same key with different payload | Verified: Mismatched query/learner with same key returns HTTP 409 Conflict | 🟢 **PASSED** |
+| **Idempotency Key & Re-asking Lifecycle** | Distinct transaction keys + Client retry key preservation | Verified: Client retry retains key; new student questions generate fresh `idemp-tx-...` keys allowing new ticket creation after previous resolution | 🟢 **PASSED (ZERO STALE LOCKS)** |
+| **Canonical Payload Conflict Detection (HTTP 409)** | Reject same key with any altered attribute | Verified: Canonical sorted JSON SHA-256 covering all 7 fields (learner, query, module, priority, status, polarity, subjectivity) returns HTTP 409 on alteration | 🟢 **PASSED (PAYLOAD INTEGRITY)** |
 | **Database Migration Fail-Fast & Verification** | Strict verification on startup | Verified: `ensure_db_schema` fails fast (RuntimeError) and asserts columns & indexes | 🟢 **PASSED** |
-| **Worst-Case Latency Timeout Budget** | Mathematical SLA guarantee (< 3.5s) | FastApi (1500ms) + DB (1000ms) + Retries (100ms) = 2800ms < 3500ms SLA | 🟢 **MATHEMATICALLY PROVEN** |
+| **Worst-Case Latency Timeout Budget** | Mathematical SLA ceiling guarantee (< 3.5s) | Analyze: (1100ms * 2 + 40ms = 2240ms) + DB: (450ms * 2 + 40ms = 940ms) + Overhead: 100ms = 3280ms < 3500ms SLA | 🟢 **MATHEMATICALLY PROVEN CEILING** |
 | **Distributed Correlation ID Tracing** | End-to-End trace across Webhook, API, and DB | Propagated through Pydantic, Logs, SQLite & Responses | 🟢 **PASSED** |
-| **n8n Native Node Retries & Timeout Budgeting** | Node-level retry & SLA budget management | `retryOnFail: true`, `maxTries: 2`, `waitBetweenTries: 50ms` (budgeted for worst-case failure = 2800ms < 3500ms) | 🟢 **PASSED (< 3.5s SLA GUARANTEED)** |
+| **n8n Native Node Retries & Timeout Budgeting** | Node-level retry & SLA budget management | `retryOnFail: true`, `maxTries: 2`, `waitBetweenTries: 40ms` (budgeted for absolute worst-case dual failure = 3280ms < 3500ms) | 🟢 **PASSED (< 3.5s SLA GUARANTEED)** |
 | **Deliberative Routing & DB Persistence**| Escalate negative sentiment | Escalated tickets persisted to SQLite `support_tickets` | 🟢 **PASSED** |
 
 ---
@@ -216,6 +216,7 @@ sprints_capstone/
 ├── Dockerfile                         # Container build definition for API service
 ├── docker-compose.yml                 # Multi-container orchestration (FastAPI + n8n)
 ├── requirements.txt                   # Pinned production Python dependencies
+├── requirements.lock                  # Deterministic lock file generated from verified CI build
 └── README.md                          # Comprehensive project documentation
 ```
 
@@ -319,7 +320,7 @@ To ensure architectural transparency:
 * **Architecture Presentation Deck:** [`docs/Sprints_Architecture_Presentation.pdf`](docs/Sprints_Architecture_Presentation.pdf) (10-slide executive presentation)
 * **Demo Walkthrough Video:** [`demo/Demo_Walkthrough.mp4`](demo/Demo_Walkthrough.mp4) (3.5-minute video walkthrough)
 * **Verbatim Demo Script:** [`demo/DEMO_SCRIPT.md`](demo/DEMO_SCRIPT.md)
-* **GitHub Official Release:** [v1.0.0 Graduation Release](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.4.0)
+* **GitHub Official Release:** [v1.0.0 Graduation Release](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.5.0)
 
 ---
 

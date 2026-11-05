@@ -4,7 +4,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 console.log('=================================================================');
-console.log('N8N WORKFLOW INTERNAL ENGINE & CODE NODE VERIFICATION (v1.4.0)');
+console.log('N8N WORKFLOW INTERNAL ENGINE & CODE NODE VERIFICATION (v1.5.0)');
 console.log('=================================================================\n');
 
 const workflowPath = path.join(__dirname, '..', 'n8n_workflows', 'learner_success_agent.json');
@@ -36,7 +36,7 @@ requiredNodes.forEach(name => {
 });
 console.log(`   [PASS] All ${requiredNodes.length} required nodes present with valid positions and types.`);
 
-// 2. Validate Node Connections & Timeout Budgets & Native Retries
+// 2. Validate Node Connections & Mathematical SLA Timeout Budgets
 console.log('\n2. Validating Connection Graph Routing, Timeout Budgets & Native Retries...');
 const conn = workflow.connections;
 assert(conn['HTTP Webhook Trigger'].main[0][0].node === 'Parse & Validate Query');
@@ -49,22 +49,24 @@ assert(ifConns.length === 2, 'IF node must have 2 output branches');
 assert(ifConns[0][0].node === 'Persist Escalation to SQLite DB', 'Output 0 (True) must route to DB escalation');
 assert(ifConns[1][0].node === 'Format Automated RAG Response', 'Output 1 (False) must route to RAG response');
 
-// Timeout budgets and Native Node Retries (n8n root settings)
-// Calibrated for worst-case mathematical execution budget:
-// Worst Case = FastApi (1500ms) + Retry Wait (50ms) + DB (1000ms) + Retry Wait (50ms) + Overhead (200ms) = 2800ms < 3500ms SLA
+// Strict Mathematical Worst-Case Failure Budget Guarantee:
+// Analyze: (1100ms * 2 tries) + 40ms wait = 2240ms
+// Escalation DB: (450ms * 2 tries) + 40ms wait = 940ms
+// Internal node execution overhead: ~100ms
+// Total Worst-Case Dual Failure Latency = 2240 + 940 + 100 = 3280ms < 3500ms SLA!
 const httpAnalysisNode = nodeMap.get('Analyze Sentiment, NER & Vector RAG');
-assert(httpAnalysisNode.parameters.options.timeout <= 1500, 'HTTP analysis node timeout must be budgeted <= 1500ms');
+assert(httpAnalysisNode.parameters.options.timeout <= 1100, 'HTTP analysis node timeout must be <= 1100ms');
 assert(httpAnalysisNode.retryOnFail === true, 'HTTP analysis node must have native retryOnFail enabled');
 assert(httpAnalysisNode.maxTries === 2, 'HTTP analysis node maxTries must equal 2');
-assert(httpAnalysisNode.waitBetweenTries === 50, 'HTTP analysis node waitBetweenTries must equal 50ms');
+assert(httpAnalysisNode.waitBetweenTries === 40, 'HTTP analysis node waitBetweenTries must equal 40ms');
 
 const httpDbNode = nodeMap.get('Persist Escalation to SQLite DB');
-assert(httpDbNode.parameters.options.timeout <= 1000, 'HTTP DB node timeout must be budgeted <= 1000ms');
+assert(httpDbNode.parameters.options.timeout <= 450, 'HTTP DB node timeout must be <= 450ms');
 assert(httpDbNode.retryOnFail === true, 'HTTP DB node must have native retryOnFail enabled');
 assert(httpDbNode.maxTries === 2, 'HTTP DB node maxTries must equal 2');
-assert(httpDbNode.waitBetweenTries === 50, 'HTTP DB node waitBetweenTries must equal 50ms');
+assert(httpDbNode.waitBetweenTries === 40, 'HTTP DB node waitBetweenTries must equal 40ms');
 
-console.log('   [PASS] Connection graph, timeout budgets (worst-case failure = 2800ms < 3500ms), and native retries verified.');
+console.log('   [PASS] Connection graph and mathematical worst-case failure budget (3280ms < 3500ms) verified.');
 
 // 3. Execute JS Code Node: Parse & Validate Query in Node.js VM
 console.log('\n3. Testing Code Node: Parse & Validate Query (node-parse-query)...');
@@ -85,8 +87,8 @@ function runNodeVm(code, contextVars) {
   return script.runInContext(ctx);
 }
 
-// 3A. Valid payload with special characters, quotes, and Egyptian dialect
-const validPayload = {
+// 3A. Valid payload without key generates fresh transaction ID
+const validPayload1 = {
   $json: {
     body: {
       learner_id: 'LRN-1019',
@@ -95,34 +97,45 @@ const validPayload = {
     }
   }
 };
-const parsedResult = runNodeVm(parseCode, validPayload);
-assert.strictEqual(parsedResult.learner_id, 'LRN-1019');
-assert(parsedResult.query_text.includes('مش فاهم'));
-assert.strictEqual(parsedResult.cohort_city, 'Alexandria');
-assert(parsedResult.received_at, 'Missing received_at timestamp');
-assert(parsedResult.start_time, 'Missing start_time millisecond timestamp for true E2E latency tracking');
-assert(parsedResult.correlation_id && parsedResult.correlation_id.startsWith('corr-'), 'Missing or invalid correlation_id');
-assert(parsedResult.idempotency_key && parsedResult.idempotency_key.startsWith('idemp-det-'), 'Missing or invalid deterministic idempotency_key');
-console.log('   [PASS] Successfully parsed complex text with deterministic idempotency_key & start_time.');
+const parsedResult1 = runNodeVm(parseCode, validPayload1);
+assert.strictEqual(parsedResult1.learner_id, 'LRN-1019');
+assert(parsedResult1.query_text.includes('مش فاهم'));
+assert.strictEqual(parsedResult1.cohort_city, 'Alexandria');
+assert(parsedResult1.received_at, 'Missing received_at timestamp');
+assert(parsedResult1.start_time, 'Missing start_time millisecond timestamp for true E2E latency tracking');
+assert(parsedResult1.correlation_id && parsedResult1.correlation_id.startsWith('corr-'), 'Missing or invalid correlation_id');
+assert(parsedResult1.idempotency_key && parsedResult1.idempotency_key.startsWith('idemp-tx-'), 'Missing or invalid transaction idempotency_key');
+console.log('   [PASS] Generated collision-free transaction idempotency_key (idemp-tx-...) & start_time.');
 
-// 3B. Deterministic idempotency key stability across retries
-const parsedResultRetry = runNodeVm(parseCode, validPayload);
-assert.strictEqual(parsedResult.idempotency_key, parsedResultRetry.idempotency_key, 'Deterministic idempotency key must be identical across retries without key');
-console.log('   [PASS] Deterministic idempotency key is mathematically identical across full webhook retries.');
-
-// 3C. Explicit client idempotency key preservation
-const explicitKeyPayload = {
+// 3B. Subsequent new student question generates distinct key (doesn't block new ticket after resolution)
+const validPayload2 = {
   $json: {
     body: {
       learner_id: 'LRN-1019',
-      query_text: 'Query with explicit key',
-      idempotency_key: 'custom-client-key-999'
+      query_text: 'أنا مش فاهم "PyTorch tensors" خالص وعايز مساعدة ضروري!\nوشكراً',
+      cohort_city: 'Alexandria'
+    }
+  }
+};
+const parsedResult2 = runNodeVm(parseCode, validPayload2);
+assert.notStrictEqual(parsedResult1.idempotency_key, parsedResult2.idempotency_key, 'Subsequent student inquiries must generate distinct transaction keys');
+console.log('   [PASS] Re-asking a resolved question generates a new transaction key, enabling new ticket creation.');
+
+// 3C. Explicit client idempotency key is strictly preserved for network retries
+const explicitKeyPayload = {
+  $json: {
+    headers: {
+      'idempotency-key': 'client-retry-key-uuid-12345'
+    },
+    body: {
+      learner_id: 'LRN-1019',
+      query_text: 'Query with explicit client network retry key'
     }
   }
 };
 const parsedExplicitResult = runNodeVm(parseCode, explicitKeyPayload);
-assert.strictEqual(parsedExplicitResult.idempotency_key, 'custom-client-key-999');
-console.log('   [PASS] Explicit client idempotency key is honored.');
+assert.strictEqual(parsedExplicitResult.idempotency_key, 'client-retry-key-uuid-12345');
+console.log('   [PASS] Explicit client network retry Idempotency-Key header is strictly preserved.');
 
 // 3D. Rejection of missing learner_id
 assert.throws(() => {
@@ -160,7 +173,7 @@ const mockNodeAccessor = (nodeName) => {
       first: () => ({
         json: { 
           correlation_id: 'corr-test-12345', 
-          idempotency_key: 'idemp-test-12345', 
+          idempotency_key: 'idemp-tx-test-12345', 
           learner_id: 'LRN-1019',
           start_time: Date.now() - 450
         }
@@ -197,7 +210,7 @@ assert.strictEqual(escResult.status, 'escalated');
 assert.strictEqual(escResult.ticket_id, 'TCK-ESC-048291AABB11');
 assert.strictEqual(escResult.db_persisted, true);
 assert.strictEqual(escResult.correlation_id, 'corr-test-12345');
-assert.strictEqual(escResult.idempotency_key, 'idemp-test-12345');
+assert.strictEqual(escResult.idempotency_key, 'idemp-tx-test-12345');
 assert(escResult.execution_latency_ms >= 400, 'Must record true end-to-end execution latency from start_time');
 assert.strictEqual(escResult.sla_met, true);
 console.log('   [PASS] Valid persistence verified with true E2E latency & dynamic sla_met.');
@@ -236,7 +249,7 @@ assert.strictEqual(ragResult.status, 'resolved_auto');
 assert(ragResult.ticket_id.startsWith('TCK-AUTO-'));
 assert.strictEqual(ragResult.db_persisted, false);
 assert.strictEqual(ragResult.correlation_id, 'corr-test-12345');
-assert.strictEqual(ragResult.idempotency_key, 'idemp-test-12345');
+assert.strictEqual(ragResult.idempotency_key, 'idemp-tx-test-12345');
 assert.strictEqual(ragResult.extracted_modules[0], 'MOD-101');
 assert(ragResult.execution_latency_ms >= 400, 'Must record true E2E latency');
 assert.strictEqual(ragResult.sla_met, true);
