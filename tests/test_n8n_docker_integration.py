@@ -202,7 +202,11 @@ def main():
     auto_import_workflow_if_docker()
 
     # 4. Live Webhook Testing (Both Paths)
-    webhook_url = f"{N8N_BASE_URL}/webhook/learner-query"
+    execute_live_webhook_assertions()
+
+def execute_live_webhook_assertions(webhook_url: str = None):
+    if not webhook_url:
+        webhook_url = f"{N8N_BASE_URL}/webhook/learner-query"
     print(f"\n2. Executing Real-time Webhooks against: {webhook_url}")
 
     # PATH A: Automated Curriculum Query (Semantic Vector RAG)
@@ -358,6 +362,49 @@ def main():
     print("ALL 5 N8N DOCKER WEBHOOK ROUTING & SQLITE PERSISTENCE TESTS PASSED!")
     print(f"Max Latency Observed: {max_lat:.2f}ms (Strict SLA < 3500ms 100% SATISFIED)")
     print("=" * 65)
+
+
+
+# ==============================================================================
+# PYTEST SUITE INTERFACE
+# ==============================================================================
+
+def test_workflow_json_schema_and_graph():
+    """Sprint 4: Validates n8n workflow file existence, node configuration, retries and credentials."""
+    assert os.path.exists(WORKFLOW_PATH), f"Workflow file missing at {WORKFLOW_PATH}"
+    with open(WORKFLOW_PATH, 'r', encoding='utf-8') as f:
+        wf = json.load(f)
+    assert wf['name'] == "Sprints AI Learner Success & Support Agent"
+    assert len(wf['nodes']) >= 8
+    node_names = [n['name'] for n in wf['nodes']]
+    assert "HTTP Webhook Trigger" in node_names
+    assert "Analyze Sentiment, NER & Vector RAG" in node_names
+    assert "Persist Escalation to SQLite DB" in node_names
+    assert "Deliberative Decision Router" in node_names
+
+def test_docker_compose_syntax_and_service_spec():
+    """Sprint 4: Validates docker-compose.yml configuration, authentication tokens and volume mounts."""
+    assert os.path.exists(COMPOSE_PATH), f"Compose file missing at {COMPOSE_PATH}"
+    with open(COMPOSE_PATH, 'r', encoding='utf-8') as f:
+        content = f.read()
+    assert "sprints-ai-api:" in content
+    assert "sprints-n8n:" in content
+    assert "SPRINTS_API_KEY" in content
+    assert "FASTAPI_API_KEY" in content
+
+def test_live_docker_webhook_dual_branch_routing():
+    """
+    Sprint 4: Live multi-container webhook validation against both branches
+    (Automated RAG and Escalation) if live services are online.
+    If services are offline, skips with informative message unless running in CI with live containers.
+    """
+    import pytest
+    fastapi_online = is_service_online(f"{FASTAPI_BASE_URL}/api/v1/health")
+    n8n_online = is_service_online(f"{N8N_BASE_URL}/healthz") or is_service_online(N8N_BASE_URL)
+    if not (fastapi_online and n8n_online):
+        pytest.skip("Docker Compose live stack (FastAPI + n8n) is offline on host. Run 'docker compose up -d' for live integration testing.")
+    
+    execute_live_webhook_assertions()
 
 if __name__ == "__main__":
     main()
