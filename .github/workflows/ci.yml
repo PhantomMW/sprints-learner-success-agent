@@ -14,6 +14,9 @@ jobs:
     env:
       SPRINTS_API_KEY: ${{ secrets.SPRINTS_API_KEY || 'sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a' }}
       FASTAPI_API_KEY: ${{ secrets.SPRINTS_API_KEY || 'sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a' }}
+      WEBHOOK_SECRET: whsec_ci_test_sprints_e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3
+      SESSION_SECRET: sess_ci_test_sprints_f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4
+      MAX_PAYLOAD_SIZE: 65536
 
     steps:
       - name: Checkout Repository
@@ -56,6 +59,10 @@ jobs:
       - name: Sprint 4 - API Security, X-API-Key Authentication & Rate Limiting
         run: |
           python -m pytest -v tests/test_security_and_auth.py
+
+      - name: Phase 1 - Enterprise Security Hardening (HMAC Webhooks, Replay Defense, Payload 413, Sessions)
+        run: |
+          python -m pytest -v tests/test_security_hardening.py
 
       - name: Sprint 4 - Concurrency & Empirical Latency SLA Benchmark
         run: |

@@ -398,13 +398,28 @@
           <span id="liveStatusBadge"></span><span id="liveStatusText">جاري فحص الاتصال بالخادم...</span>
         </div>
 
-        <!-- Security API Key Config -->
-        <div class="input-group input-group-sm" style="max-width: 260px;" title="مفتاح الأمان والمصادقة المعتمد للـ API">
-          <span class="input-group-text bg-dark border-secondary text-muted"><i class="fa-solid fa-shield-halved"></i></span>
-          <input type="password" id="apiKeyInput" class="form-control bg-dark border-secondary text-light num-en" value="" placeholder="أدخل مفتاح X-API-Key للبدء..." autocomplete="off">
-          <button class="btn btn-outline-secondary" type="button" onclick="toggleApiKey()" title="عرض / إخفاء المفتاح">
-            <i class="fa-solid fa-eye" id="eyeIcon"></i>
-          </button>
+        <!-- Security Authentication & Session Management -->
+        <div id="sessionAuthContainer" class="d-flex align-items-center gap-2">
+          <!-- Active Authenticated Session Badge -->
+          <div id="activeSessionPill" class="d-none align-items-center gap-2 bg-dark px-3 py-1 rounded-pill border border-success" title="جلسة مشفرة نشطة عبر HttpOnly Cookie">
+            <span class="badge bg-success rounded-pill"><i class="fa-solid fa-shield-check me-1"></i> جلسة آمنة</span>
+            <span class="text-success small fw-bold" id="sessionExpText">مؤمنة</span>
+            <button class="btn btn-outline-danger btn-sm py-0 px-2 rounded-pill" onclick="logoutSession()" title="تسجيل الخروج">
+              <i class="fa-solid fa-arrow-right-from-bracket"></i> خروج
+            </button>
+          </div>
+
+          <!-- Session Login Input Group -->
+          <div id="sessionLoginForm" class="input-group input-group-sm" style="max-width: 320px;" title="المصادقة وبدء جلسة آمنة">
+            <span class="input-group-text bg-dark border-secondary text-muted"><i class="fa-solid fa-shield-halved"></i></span>
+            <input type="password" id="apiKeyInput" class="form-control bg-dark border-secondary text-light num-en" value="" placeholder="أدخل مفتاح X-API-Key..." autocomplete="off">
+            <button class="btn btn-outline-secondary" type="button" onclick="toggleApiKey()" title="عرض / إخفاء المفتاح">
+              <i class="fa-solid fa-eye" id="eyeIcon"></i>
+            </button>
+            <button class="btn btn-primary btn-sm" type="button" onclick="loginSession()" title="بدء الجلسة الآمنة">
+              <i class="fa-solid fa-right-to-bracket me-1"></i> دخول
+            </button>
+          </div>
         </div>
 
         <a href="/docs" target="_blank" class="btn btn-outline-light btn-sm fw-bold">
@@ -916,28 +931,81 @@
   <script>
     // Utility functions
 
-    // Initialize API Key from sessionStorage if previously entered
+    // Session Authentication Management (OWASP Compliance)
     document.addEventListener('DOMContentLoaded', () => {
-      const savedKey = sessionStorage.getItem('sprints_api_key');
-      if (savedKey) {
-        const el = document.getElementById('apiKeyInput');
-        if (el) el.value = savedKey;
-      }
-      const el = document.getElementById('apiKeyInput');
-      if (el) {
-        el.addEventListener('input', (e) => {
-          sessionStorage.setItem('sprints_api_key', e.target.value.trim());
-        });
-      }
+      checkActiveSession();
     });
+
+    async function checkActiveSession() {
+      try {
+        const res = await fetch('/api/v1/auth/session', { credentials: 'same-origin' });
+        if (res.ok) {
+          const data = await res.json();
+          renderSessionState(true, data);
+        } else {
+          renderSessionState(false);
+        }
+      } catch (e) {
+        renderSessionState(false);
+      }
+    }
+
+    function renderSessionState(isAuth, data = null) {
+      const activePill = document.getElementById('activeSessionPill');
+      const loginForm = document.getElementById('sessionLoginForm');
+      if (isAuth) {
+        if (activePill) { activePill.classList.remove('d-none'); activePill.classList.add('d-flex'); }
+        if (loginForm) loginForm.classList.add('d-none');
+        const expText = document.getElementById('sessionExpText');
+        if (expText && data && data.ttl_remaining_seconds) {
+          expText.innerText = `${Math.round(data.ttl_remaining_seconds / 60)} دقيقة`;
+        }
+      } else {
+        if (activePill) { activePill.classList.remove('d-flex'); activePill.classList.add('d-none'); }
+        if (loginForm) loginForm.classList.remove('d-none');
+      }
+    }
+
+    async function loginSession() {
+      const input = document.getElementById('apiKeyInput');
+      const key = input ? input.value.trim() : '';
+      if (!key) {
+        showAlert('<strong>🔑 تنبيه أمني:</strong> يرجى إدخال مفتاح الـ API في الحقل المخصص لتأسيس جلسة آمنة.', 'warning');
+        return;
+      }
+      try {
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: key }),
+          credentials: 'same-origin'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (input) input.value = ''; // Eradicate secret key from DOM memory immediately
+          showAlert('<strong>🛡️ تم تأسيس الجلسة بنجاح:</strong> تم توثيق الجلسة عبر HttpOnly Cookie مشفر وحذف المفتاح السري من الذاكرة لحماية البيانات.', 'success');
+          renderSessionState(true, { ttl_remaining_seconds: data.expires_in });
+        } else {
+          showAlert('<strong>🚫 خطأ في المصادقة:</strong> مفتاح الـ API غير صالح. يرجى التحقق من المفتاح المعتمد.', 'danger');
+        }
+      } catch (e) {
+        showAlert('<strong>⚠️ خطأ شبكة:</strong> تعذر الاتصال بخادم المصادقة.', 'danger');
+      }
+    }
+
+    async function logoutSession() {
+      try {
+        await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        renderSessionState(false);
+        showAlert('<strong>🔒 تم إنهاء الجلسة:</strong> تم تسجيل الخروج وإلغاء صلاحية الجلسة بنجاح.', 'info');
+      } catch (e) {
+        renderSessionState(false);
+      }
+    }
 
     function getApiKey() {
       const el = document.getElementById('apiKeyInput');
-      const key = el ? el.value.trim() : '';
-      if (!key) {
-        showAlert('<strong>🔑 تنبيه أمني:</strong> برجاء إدخال مفتاح الـ API في حقل المصادقة أعلى الصفحة (Navbar) للبدء في تنفيذ الاستعلامات وحماية بيانات المنظومة.', 'warning');
-      }
-      return key;
+      return el ? el.value.trim() : '';
     }
 
 
@@ -1068,12 +1136,13 @@
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> جاري استدعاء محرك الـ NLP والـ RAG التداولي...';
 
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        const key = getApiKey();
+        if (key) headers['X-API-Key'] = key;
         const res = await fetch('/api/v1/analyze', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': getApiKey()
-          },
+          headers: headers,
+          credentials: 'same-origin',
           body: JSON.stringify({ learner_id: learnerId, query_text: query })
         });
 
@@ -1158,12 +1227,13 @@
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-2"></i> جاري استنتاج المخاطر عصبياً عبر PyTorch...';
 
       try {
+        const riskHeaders = { 'Content-Type': 'application/json' };
+        const rKey = getApiKey();
+        if (rKey) riskHeaders['X-API-Key'] = rKey;
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': getApiKey()
-          },
+          headers: riskHeaders,
+          credentials: 'same-origin',
           body: JSON.stringify(payload)
         });
 

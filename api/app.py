@@ -24,10 +24,13 @@ import uuid
 import hashlib
 import json
 from collections import defaultdict
-from fastapi import FastAPI, HTTPException, status, Header, Request, Depends, Security
-from fastapi.responses import HTMLResponse
+import hmac
+import base64
+from fastapi import FastAPI, HTTPException, status, Header, Request, Depends, Security, Response
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from gensim.models import Word2Vec
 
 # Add scripts directory to path
@@ -79,6 +82,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+MAX_PAYLOAD_SIZE = int(os.environ.get("MAX_PAYLOAD_SIZE", 65536)) # 64 KB limit
+
+class MaxPayloadSizeMiddleware(BaseHTTPMiddleware):
+    """
+    OWASP Request Entity Size Protection:
+    Rejects any request body exceeding MAX_PAYLOAD_SIZE with HTTP 413 Payload Too Large.
+    Defends microservice memory against buffer overflows and Denial of Service (DoS) exhaustion.
+    """
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_PAYLOAD_SIZE:
+                    return JSONResponse(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        content={"detail": f"Payload Too Large: Request entity ({content_length} bytes) exceeds maximum allowable limit of {MAX_PAYLOAD_SIZE} bytes."}
+                    )
+            except ValueError:
+                pass
+        return await call_next(request)
+
+app.add_middleware(MaxPayloadSizeMiddleware)
+
 # Global model caches
 GLOBAL_MODELS: Dict[str, Any] = {}
 DB_PATH = os.path.join(project_root, 'database', 'sprints_learners.db')
@@ -117,6 +143,9 @@ if not SPRINTS_API_KEY:
         "Please provide SPRINTS_API_KEY in your local .env file or host environment before starting the service."
     )
 
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", hashlib.sha256((SPRINTS_API_KEY + "-webhook-hmac-2026").encode()).hexdigest())
+SESSION_SECRET = os.environ.get("SESSION_SECRET", hashlib.sha256((SPRINTS_API_KEY + "-session-token-2026").encode()).hexdigest())
+
 api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120"))
@@ -128,9 +157,29 @@ def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool
     """
     In-memory sliding window rate limiter per client IP address.
     Prunes timestamps older than 60 seconds and verifies request count < limit.
-    Architecture note: For horizontally scaled multi-worker / multi-node deployments,
-    integrate a centralized Redis token bucket via REDIS_URL.
+    Multi-worker architecture: For clustered multi-worker / multi-node deployments,
+    seamlessly utilizes Redis token-bucket via REDIS_URL.
     """
+    redis_url = os.environ.get("REDIS_URL")
+    if redis_url:
+        try:
+            import redis
+            r = redis.from_url(redis_url)
+            pipe = r.pipeline()
+            now = time.time()
+            cutoff = now - 60.0
+            key = f"ratelimit:{client_ip}"
+            pipe.zremrangebyscore(key, 0, cutoff)
+            pipe.zcard(key)
+            pipe.zadd(key, {str(now): now})
+            pipe.expire(key, 65)
+            _, count, _, _ = pipe.execute()
+            if count >= limit:
+                return False
+            return True
+        except Exception as e:
+            logger.warning(f"Redis rate limiter fallback to in-memory: {e}")
+
     now = time.time()
     cutoff = now - 60.0
     _rate_limit_history[client_ip] = [t for t in _rate_limit_history[client_ip] if t > cutoff]
@@ -160,36 +209,184 @@ async def rate_limiter_dependency(request: Request):
             headers={"Retry-After": "60"}
         )
 
+# ==============================================================================
+# SECURE SESSION MANAGEMENT (OWASP Dashboard Session Auth)
+# ==============================================================================
+ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}
+REVOKED_SESSIONS: set = set()
+
+def create_session_token(subject: str = "operator", ttl_seconds: int = 7200) -> str:
+    now = int(time.time())
+    exp = now + ttl_seconds
+    jti = secrets.token_hex(16)
+    payload = {"sub": subject, "iat": now, "exp": exp, "jti": jti}
+    payload_bytes = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+    payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode('utf-8').rstrip('=')
+    sig = hmac.new(SESSION_SECRET.encode('utf-8'), payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()
+    token = f"{payload_b64}.{sig}"
+    ACTIVE_SESSIONS[jti] = {"sub": subject, "exp": exp}
+    return token
+
+def verify_session_token(token: str) -> Optional[Dict[str, Any]]:
+    if not token or not isinstance(token, str):
+        return None
+    try:
+        parts = token.split('.')
+        if len(parts) != 2:
+            return None
+        payload_b64, sig = parts
+        expected_sig = hmac.new(SESSION_SECRET.encode('utf-8'), payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(sig, expected_sig):
+            return None
+        rem = len(payload_b64) % 4
+        padded = payload_b64 + ('=' * (4 - rem) if rem else '')
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode('utf-8'))
+        jti = payload.get("jti")
+        if not jti or jti in REVOKED_SESSIONS:
+            return None
+        if time.time() > payload.get("exp", 0):
+            return None
+        return payload
+    except Exception:
+        return None
+
+def revoke_session_token(token: str) -> bool:
+    payload = verify_session_token(token)
+    if payload and "jti" in payload:
+        REVOKED_SESSIONS.add(payload["jti"])
+        ACTIVE_SESSIONS.pop(payload["jti"], None)
+        return True
+    return False
+
+# ==============================================================================
+# n8n WEBHOOK HMAC-SHA256 SIGNATURE & REPLAY ATTACK DEFENSE
+# ==============================================================================
+_seen_webhook_signatures: Dict[str, float] = {}
+
+def verify_hmac_sha256_signature(raw_body: bytes, signature_header: Optional[str], timestamp_str: Optional[str]) -> bool:
+    """
+    OWASP Webhook Security & Replay Attack Defense:
+    1. Validates presence and format of HMAC-SHA256 signature (sha256=<hex>).
+    2. Validates timestamp drift: Rejects any timestamp drifting > 300 seconds (5 min).
+    3. Replay attack rejection: Caches (sig, timestamp) pairs; duplicates within sliding window fail immediately.
+    4. Cryptographic constant-time comparison against computed HMAC-SHA256 over f'{timestamp}.{body}'.
+    """
+    if not signature_header or not signature_header.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Missing signature header (X-Signature-SHA256)."
+        )
+
+    if not timestamp_str or not timestamp_str.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Missing timestamp header (X-Timestamp)."
+        )
+
+    try:
+        req_ts = float(timestamp_str)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Invalid X-Timestamp header (must be numeric Unix epoch timestamp)."
+        )
+
+    now = time.time()
+    drift = abs(now - req_ts)
+    if drift > 300.0:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Webhook Security Error: Request timestamp expired (clock drift {drift:.1f}s > 300.0s tolerance). Replay attack protection active."
+        )
+
+    sig = signature_header.strip()
+    if sig.startswith("sha256="):
+        sig = sig.split("=", 1)[1]
+
+    # Sliding window cache cleanup (older than 300s)
+    cutoff = now - 300.0
+    for k in list(_seen_webhook_signatures.keys()):
+        if _seen_webhook_signatures[k] < cutoff:
+            del _seen_webhook_signatures[k]
+
+    cache_key = f"{sig}:{timestamp_str}"
+    if cache_key in _seen_webhook_signatures:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Security Error: Replay attack detected. This signed event payload has already been processed."
+        )
+
+    signed_payload = f"{timestamp_str}.".encode('utf-8') + raw_body
+    computed_sig = hmac.new(WEBHOOK_SECRET.encode('utf-8'), signed_payload, hashlib.sha256).hexdigest()
+
+    if not secrets.compare_digest(sig, computed_sig):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Invalid HMAC-SHA256 signature."
+        )
+
+    _seen_webhook_signatures[cache_key] = now
+    return True
+
 async def verify_api_key(
     request: Request,
     api_key: Optional[str] = Security(api_key_header_scheme),
-    authorization: Optional[str] = Header(None)
+    authorization: Optional[str] = Header(None),
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token")
 ):
     """
-    Enforces API Key authentication and rate limiting.
+    Enforces API Key & Session Authentication with Rate Limiting.
     Accepts credentials via:
     1. Header 'X-API-Key: <key>'
-    2. Header 'Authorization: Bearer <key>'
+    2. Header 'Authorization: Bearer <key_or_session_token>'
+    3. Header 'X-Session-Token: <token>'
+    4. Secure HttpOnly Cookie 'sprints_session_id'
+    5. Header 'X-Signature-SHA256' (HMAC-SHA256 Webhook Verification)
     Uses constant-time comparison (secrets.compare_digest) to prevent timing attacks.
     """
     await rate_limiter_dependency(request)
     
-    token = api_key
-    if not token and authorization:
+    # 1. API Key Header
+    if api_key and secrets.compare_digest(api_key, SPRINTS_API_KEY):
+        return api_key
+
+    # 2. Authorization Header
+    if authorization:
         parts = authorization.split()
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1]
-        elif len(parts) == 1:
-            token = parts[0]
-            
-    if not token or not secrets.compare_digest(token, SPRINTS_API_KEY):
-        logger.warning(f"Unauthorized API request from {request.client.host if request.client else 'unknown'}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: Missing or invalid API Key. Provide 'X-API-Key: <key>' or 'Authorization: Bearer <key>'.",
-            headers={"WWW-Authenticate": "ApiKey"}
-        )
-    return token
+        candidate = parts[1] if len(parts) == 2 and parts[0].lower() == "bearer" else parts[0]
+        if secrets.compare_digest(candidate, SPRINTS_API_KEY):
+            return candidate
+        session = verify_session_token(candidate)
+        if session:
+            return candidate
+
+    # 3. Session Token Header
+    if x_session_token:
+        session = verify_session_token(x_session_token)
+        if session:
+            return x_session_token
+
+    # 4. Cookie 'sprints_session_id'
+    cookie_token = request.cookies.get("sprints_session_id")
+    if cookie_token:
+        session = verify_session_token(cookie_token)
+        if session:
+            return cookie_token
+
+    # 5. HMAC-SHA256 Webhook Signature
+    sig_header = request.headers.get("X-Signature-SHA256") or request.headers.get("X-Hub-Signature-256")
+    ts_header = request.headers.get("X-Timestamp")
+    if sig_header and ts_header:
+        body = await request.body()
+        if verify_hmac_sha256_signature(body, sig_header, ts_header):
+            return "webhook_hmac_verified"
+
+    logger.warning(f"Unauthorized API request from {request.client.host if request.client else 'unknown'}")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized: Missing or invalid API Key / Session Token. Provide 'X-API-Key: <key>', 'Authorization: Bearer <token>', or an active session cookie.",
+        headers={"WWW-Authenticate": "ApiKey, Bearer, Session"}
+    )
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -378,7 +575,20 @@ class LearnerQueryRequest(BaseModel):
     def validate_query_not_empty(cls, v):
         if not v or not v.strip():
             raise ValueError("query_text cannot be blank or contain only whitespace.")
-        return v.strip()
+        v_clean = v.strip()
+        v_lower = v_clean.lower()
+        if "<script" in v_lower or "javascript:" in v_lower or "onload=" in v_lower or "onerror=" in v_lower:
+            raise ValueError("Security violation: Malicious script tags or XSS vector detected in query_text.")
+        return v_clean
+
+    @validator("learner_id")
+    def validate_learner_id_safe(cls, v):
+        if not v or not v.strip():
+            raise ValueError("learner_id cannot be blank.")
+        v_clean = v.strip()
+        if any(c in v_clean for c in [";", "--", "/*", "*/", "'", '"', "\\"]):
+            raise ValueError("Security violation: Malicious SQL injection characters detected in learner_id.")
+        return v_clean
 
 class TicketEscalationRequest(BaseModel):
     learner_id: str = Field(..., min_length=3, max_length=20, example="LRN-1005")
@@ -390,6 +600,24 @@ class TicketEscalationRequest(BaseModel):
     status: str = Field("Pending_Human_Escalation", example="Pending_Human_Escalation")
     correlation_id: Optional[str] = Field(None, example="corr-12345")
     idempotency_key: Optional[str] = Field(None, example="idemp-12345")
+
+    @validator("learner_id")
+    def validate_escalation_learner_id(cls, v):
+        if not v or not v.strip():
+            raise ValueError("learner_id cannot be blank.")
+        v_clean = v.strip()
+        if any(c in v_clean for c in [";", "--", "/*", "*/", "'", '"', "\\"]):
+            raise ValueError("Security violation: Malicious SQL injection characters detected in learner_id.")
+        return v_clean
+
+    @validator("query_text")
+    def validate_escalation_query_safe(cls, v):
+        if not v or not v.strip():
+            raise ValueError("query_text cannot be blank.")
+        v_lower = v.lower()
+        if "<script" in v_lower or "javascript:" in v_lower or "onload=" in v_lower or "onerror=" in v_lower:
+            raise ValueError("Security violation: Malicious script tags or XSS vector detected in query_text.")
+        return v.strip()
 
     @validator("priority")
     def validate_priority(cls, v):
@@ -454,13 +682,152 @@ def live_demo_dashboard():
     return HTMLResponse(content="<h2>Sprints AI Agent Live Backend Running</h2><p>Visit <a href='/docs'>/docs</a> for Swagger documentation.</p>", status_code=200)
 
 
+class LoginRequest(BaseModel):
+    api_key: str = Field(..., min_length=1, example="sk_live_sprints_...")
+
+@app.post("/api/v1/auth/login")
+def login_session(req: LoginRequest, response: Response):
+    """
+    Secure Session Authentication:
+    Exchanges a valid API Key for a cryptographically signed HttpOnly Session Cookie
+    and Session Token. Eliminates storing raw API keys in browser storage.
+    """
+    if not secrets.compare_digest(req.api_key.strip(), SPRINTS_API_KEY):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed: Invalid API Key provided."
+        )
+    token = create_session_token()
+    response.set_cookie(
+        key="sprints_session_id",
+        value=token,
+        max_age=7200,
+        httponly=True,
+        samesite="lax",
+        secure=False
+    )
+    return {
+        "status": "authenticated",
+        "session_token": token,
+        "expires_in": 7200,
+        "detail": "Session successfully established. HttpOnly cookie and session token active."
+    }
+
+@app.post("/api/v1/auth/logout")
+def logout_session(request: Request, response: Response):
+    """
+    Terminates the active session and revokes the session token.
+    """
+    token = request.cookies.get("sprints_session_id") or request.headers.get("X-Session-Token")
+    auth_header = request.headers.get("Authorization", "")
+    if not token and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+    if token:
+        revoke_session_token(token)
+    response.delete_cookie("sprints_session_id")
+    return {"status": "logged_out", "detail": "Session successfully terminated and revoked."}
+
+@app.get("/api/v1/auth/session")
+def check_session(request: Request):
+    """
+    Verifies if current caller possesses an active authenticated session.
+    """
+    token = request.cookies.get("sprints_session_id") or request.headers.get("X-Session-Token")
+    auth_header = request.headers.get("Authorization", "")
+    if not token and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+    if token:
+        session_data = verify_session_token(token)
+        if session_data:
+            return {
+                "authenticated": True,
+                "subject": session_data.get("sub"),
+                "expires_at": session_data.get("exp"),
+                "ttl_remaining_seconds": max(0, int(session_data.get("exp", 0) - time.time()))
+            }
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No active authenticated session found.")
+
+@app.post("/api/v1/webhook/learner-query")
+@app.post("/webhook/learner-query")
+async def secure_webhook_endpoint(
+    request: Request,
+    x_signature: Optional[str] = Header(None, alias="X-Signature-SHA256"),
+    x_hub_signature: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
+    x_timestamp: Optional[str] = Header(None, alias="X-Timestamp"),
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")
+):
+    """
+    Dedicated Secure Webhook Receiver with HMAC-SHA256 & Replay Protection:
+    Validates cryptographic authenticity, prevents replay attacks, and processes query.
+    """
+    await rate_limiter_dependency(request)
+    raw_body = await request.body()
+    sig = x_signature or x_hub_signature
+    
+    if not sig:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Missing signature header (X-Signature-SHA256)."
+        )
+    if not x_timestamp:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Missing timestamp header (X-Timestamp)."
+        )
+
+    verify_hmac_sha256_signature(raw_body, sig, x_timestamp)
+    
+    try:
+        data = json.loads(raw_body.decode('utf-8'))
+        req = LearnerQueryRequest(**data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid webhook payload: {str(e)}"
+        )
+        
+    start_time = time.time()
+    corr_id = req.correlation_id or x_correlation_id or f"corr-wh-{int(time.time()*1000)}"
+    idemp_key = req.idempotency_key or f"idemp-wh-{corr_id}"
+
+    routing_result = deliberative_agent_router(
+        req.query_text,
+        nlp_model=GLOBAL_MODELS.get("nlp"),
+        w2v_model=GLOBAL_MODELS.get("word2vec"),
+        risk_level=req.risk_level
+    )
+    latency_ms = round((time.time() - start_time) * 1000, 2)
+    
+    return {
+        "webhook_authenticated": True,
+        "signature_verified": True,
+        "correlation_id": corr_id,
+        "idempotency_key": idemp_key,
+        "learner_id": req.learner_id,
+        "routing_decision": routing_result["routing_decision"],
+        "assigned_queue": routing_result["assigned_queue"],
+        "priority": routing_result["priority"],
+        "retrieved_chunk": routing_result["retrieved_chunk"],
+        "agent_response": routing_result["agent_response"],
+        "execution_latency_ms": latency_ms,
+        "sla_met": latency_ms < 3500.0
+    }
+
 @app.get("/api/v1/health")
 def healthcheck(_rate_limit: None = Depends(rate_limiter_dependency)):
     return {
         "status": "healthy",
         "service": "Sprints AI Learner Success Agent",
         "models_loaded": list(GLOBAL_MODELS.keys()),
-        "database_connected": os.path.exists(DB_PATH)
+        "database_connected": os.path.exists(DB_PATH),
+        "security": {
+            "api_key_auth": True,
+            "session_management": True,
+            "webhook_hmac_sha256": True,
+            "replay_protection": True,
+            "max_payload_limit_kb": MAX_PAYLOAD_SIZE // 1024,
+            "rate_limiter_mode": "redis_distributed" if os.environ.get("REDIS_URL") else "in_memory_sliding_window"
+        }
     }
 
 @app.post("/api/v1/analyze")
