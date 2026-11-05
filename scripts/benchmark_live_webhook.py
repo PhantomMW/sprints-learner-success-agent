@@ -68,7 +68,7 @@ def send_request(idx: int, target_url: str, headers: dict) -> dict:
             "error": str(e)
         }
 
-def run_network_benchmark(total_requests: int = 50, concurrency: int = 5):
+def run_network_benchmark(total_requests: int = 100, concurrency: int = 10, target_override: str = None):
     print("=" * 70)
     print("SPRINTS E2E NETWORK CONCURRENCY & SLA LATENCY BENCHMARK")
     print("=" * 70)
@@ -84,8 +84,15 @@ def run_network_benchmark(total_requests: int = 50, concurrency: int = 5):
     except Exception:
         pass
 
-    target_url = webhook_target if n8n_live else api_target
-    target_name = "n8n Webhook (/webhook/learner-query)" if n8n_live else "FastAPI Backend Network Socket (/api/v1/analyze)"
+    if target_override == "fastapi":
+        target_url = api_target
+        target_name = "FastAPI Backend Network Socket (/api/v1/analyze)"
+    elif target_override == "n8n":
+        target_url = webhook_target
+        target_name = "n8n Webhook (/webhook/learner-query)"
+    else:
+        target_url = webhook_target if n8n_live else api_target
+        target_name = "n8n Webhook (/webhook/learner-query)" if n8n_live else "FastAPI Backend Network Socket (/api/v1/analyze)"
     headers = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 
     print(f"Target Endpoint:  {target_name}")

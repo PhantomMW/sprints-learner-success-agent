@@ -20,7 +20,7 @@ for d in [API_DIR, SCRIPTS_DIR]:
     if d not in sys.path:
         sys.path.append(d)
 
-from app import app, load_all_models, SPRINTS_API_KEY, check_rate_limit, _rate_limit_history
+from app import app, load_all_models, SPRINTS_API_KEY, check_rate_limit, _rate_limit_history, RATE_LIMIT_PER_MINUTE
 
 @pytest.fixture(scope="module", autouse=True)
 def init_app():
@@ -172,9 +172,9 @@ class TestSecurityAndAuthentication:
         headers = {"X-Forwarded-For": flood_ip}
         _rate_limit_history[flood_ip] = []
 
-        # Flood 120 requests
-        for _ in range(120):
-            check_rate_limit(flood_ip, limit=120)
+        # Flood RATE_LIMIT_PER_MINUTE requests
+        for _ in range(RATE_LIMIT_PER_MINUTE):
+            check_rate_limit(flood_ip, limit=RATE_LIMIT_PER_MINUTE)
 
         # The 121st request via HTTP must return 429
         res = unauthenticated_client.get("/api/v1/health", headers=headers)

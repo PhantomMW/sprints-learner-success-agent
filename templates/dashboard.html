@@ -401,7 +401,7 @@
         <!-- Security API Key Config -->
         <div class="input-group input-group-sm" style="max-width: 260px;" title="مفتاح الأمان والمصادقة المعتمد للـ API">
           <span class="input-group-text bg-dark border-secondary text-muted"><i class="fa-solid fa-shield-halved"></i></span>
-          <input type="password" id="apiKeyInput" class="form-control bg-dark border-secondary text-light num-en" value="{{SESSION_API_KEY}}" placeholder="X-API-Key">
+          <input type="password" id="apiKeyInput" class="form-control bg-dark border-secondary text-light num-en" value="" placeholder="أدخل مفتاح X-API-Key للبدء..." autocomplete="off">
           <button class="btn btn-outline-secondary" type="button" onclick="toggleApiKey()" title="عرض / إخفاء المفتاح">
             <i class="fa-solid fa-eye" id="eyeIcon"></i>
           </button>
@@ -915,10 +915,31 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     // Utility functions
+
+    // Initialize API Key from sessionStorage if previously entered
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedKey = sessionStorage.getItem('sprints_api_key');
+      if (savedKey) {
+        const el = document.getElementById('apiKeyInput');
+        if (el) el.value = savedKey;
+      }
+      const el = document.getElementById('apiKeyInput');
+      if (el) {
+        el.addEventListener('input', (e) => {
+          sessionStorage.setItem('sprints_api_key', e.target.value.trim());
+        });
+      }
+    });
+
     function getApiKey() {
       const el = document.getElementById('apiKeyInput');
-      return el ? el.value.trim() : '';
+      const key = el ? el.value.trim() : '';
+      if (!key) {
+        showAlert('<strong>🔑 تنبيه أمني:</strong> برجاء إدخال مفتاح الـ API في حقل المصادقة أعلى الصفحة (Navbar) للبدء في تنفيذ الاستعلامات وحماية بيانات المنظومة.', 'warning');
+      }
+      return key;
     }
+
 
     function toggleApiKey() {
       const el = document.getElementById('apiKeyInput');

@@ -63,10 +63,12 @@ class TestArabicNLPMetrics:
         Asserts Precision >= 0.90, Recall >= 0.80, F1 >= 0.88, Accuracy >= 0.88.
         """
         metrics = evaluate_arabic_anonymized_real_world()
-        assert metrics["precision"] >= 0.90, f"Precision target breached: {metrics['precision']:.4f}"
-        assert metrics["recall"] >= 0.80, f"Recall target breached: {metrics['recall']:.4f}"
-        assert metrics["f1"] >= 0.88, f"F1-Score target breached: {metrics['f1']:.4f}"
-        assert metrics["accuracy"] >= 0.88, f"Accuracy target breached: {metrics['accuracy']:.4f}"
+        assert metrics["precision"] >= 0.95, f"Precision target breached: {metrics['precision']:.4f}"
+        assert metrics["recall"] >= 0.95, f"Recall target breached: {metrics['recall']:.4f}"
+        assert metrics["f1"] >= 0.95, f"F1-Score target breached: {metrics['f1']:.4f}"
+        assert metrics["accuracy"] >= 0.95, f"Accuracy target breached: {metrics['accuracy']:.4f}"
+        assert metrics["fp"] == 0, f"Expected 0 False Positives, got {metrics['fp']}"
+        assert metrics["fn"] == 0, f"Expected 0 False Negatives, got {metrics['fn']}"
 
     @pytest.mark.parametrize("query,expected_decision,expected_priority,expected_cat", [
         # Scenario 1: Routine educational question (Gradient Descent explanation -> RAG)

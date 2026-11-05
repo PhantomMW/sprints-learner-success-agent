@@ -72,6 +72,17 @@ class TestDashboardEndToEnd:
         assert len(data.get("models_loaded", [])) >= 5
         assert data.get("database_connected") is True
 
+    def test_dashboard_does_not_leak_api_key_in_html(self, client):
+        """
+        P0 Security Invariant: GET / must NEVER leak SPRINTS_API_KEY or session tokens
+        in the response HTML or source code.
+        Users must provide their key via header X-API-Key or client-side input.
+        """
+        res = client.get("/")
+        assert res.status_code == 200
+        assert "{{SESSION_API_KEY}}" not in res.text, "Unreplaced template placeholder in HTML!"
+        assert SPRINTS_API_KEY not in res.text, "CRITICAL SECURITY BREACH: SPRINTS_API_KEY was leaked in GET / HTML!"
+
     def test_dashboard_api_key_auth_boundary(self, client):
         """
         Verifies that requests sent from the dashboard with the default key succeed,

@@ -449,7 +449,7 @@ def live_demo_dashboard():
     dashboard_html_path = os.path.join(project_root, "templates", "dashboard.html")
     if os.path.exists(dashboard_html_path):
         with open(dashboard_html_path, "r", encoding="utf-8") as f:
-            html = f.read().replace("{{SESSION_API_KEY}}", SPRINTS_API_KEY)
+            html = f.read()
             return HTMLResponse(content=html, status_code=200)
     return HTMLResponse(content="<h2>Sprints AI Agent Live Backend Running</h2><p>Visit <a href='/docs'>/docs</a> for Swagger documentation.</p>", status_code=200)
 
