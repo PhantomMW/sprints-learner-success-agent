@@ -51,8 +51,8 @@ def is_service_online(url: str, timeout: float = 3.0) -> bool:
 
 def auto_import_workflow_if_docker(container_name: str = "sprints_n8n_orchestrator") -> bool:
     """
-    If running inside Docker Compose, automatically imports and publishes/activates
-    the learner success agent workflow before dispatching test queries.
+    If running inside Docker Compose, imports and publishes/activates the workflow
+    with strict returncode verification and failure logging. Halts if import or publish fails.
     """
     docker_info = inspect_docker()
     if not docker_info["daemon_running"]:
@@ -65,70 +65,76 @@ def auto_import_workflow_if_docker(container_name: str = "sprints_n8n_orchestrat
         )
         if container_name in ps_check.stdout:
             print(f"   [SETUP] Detected active container '{container_name}'.")
-            print("   [SETUP] Auto-importing and publishing workflow...")
-            # 1. Import workflow JSON
-            subprocess.run([
+            print("   [SETUP] Auto-importing workflow from /workflows/learner_success_agent.json...")
+            
+            # 1. Import workflow JSON with strict return code check
+            res_import = subprocess.run([
                 "docker", "exec", container_name,
                 "n8n", "import:workflow", "--input=/workflows/learner_success_agent.json"
-            ], capture_output=True, text=True, timeout=15)
+            ], capture_output=True, text=True, timeout=20)
+            if res_import.returncode != 0:
+                print(f"   [ERROR] n8n workflow import failed (code {res_import.returncode}):")
+                print("   STDOUT:", res_import.stdout)
+                print("   STDERR:", res_import.stderr)
+                raise RuntimeError(f"Workflow import failed (exit code {res_import.returncode}): {res_import.stderr.strip()}")
+            print(f"   [PASS] Workflow imported successfully: {res_import.stdout.strip()}")
 
-            # 2. Publish workflow using modern n8n publish:workflow command
-            subprocess.run([
+            # 2. Publish workflow with strict return code check
+            res_publish = subprocess.run([
                 "docker", "exec", container_name,
                 "n8n", "publish:workflow", "--id=sprints-capstone-n8n-workflow"
-            ], capture_output=True, text=True, timeout=15)
+            ], capture_output=True, text=True, timeout=20)
+            if res_publish.returncode != 0:
+                print(f"   [ERROR] n8n workflow publish failed (code {res_publish.returncode}):")
+                print("   STDOUT:", res_publish.stdout)
+                print("   STDERR:", res_publish.stderr)
+                raise RuntimeError(f"Workflow publish failed (exit code {res_publish.returncode}): {res_publish.stderr.strip()}")
+            print(f"   [PASS] Workflow published successfully: {res_publish.stdout.strip()}")
 
-            # 3. Dynamic fallback: export all workflows and ensure all IDs are published
-            publish_cmd = (
-                "n8n export:workflow --all --output=/tmp/wfs.json >/dev/null 2>&1; "
-                "node -e \""
-                "const fs=require('fs'); const {execSync}=require('child_process'); "
-                "try { "
-                "  const d=JSON.parse(fs.readFileSync('/tmp/wfs.json','utf8')); "
-                "  const l=Array.isArray(d)?d:[d]; "
-                "  for(const w of l) { "
-                "    if(w.id){ "
-                "      try{execSync('n8n publish:workflow --id='+w.id,{stdio:'ignore'})}catch(e){} "
-                "      try{execSync('n8n update:workflow --id='+w.id+' --active=true',{stdio:'ignore'})}catch(e){} "
-                "    } "
-                "  } "
-                "} catch(e){} "
-                "\""
-            )
-            subprocess.run([
+            # 3. Verify workflow is active in database
+            res_export = subprocess.run([
                 "docker", "exec", container_name,
-                "sh", "-c", publish_cmd
+                "n8n", "export:workflow", "--id=sprints-capstone-n8n-workflow", "--output=/tmp/exported_wf.json"
             ], capture_output=True, text=True, timeout=15)
+            if res_export.returncode == 0:
+                print("   [PASS] Verified workflow active and exported from n8n container database.")
 
-            # 4. Probe webhook: if not registered in memory yet, restart container so n8n loads active routes from DB
+            # 4. Probe webhook; if needed, restart container so in-memory routing table reflects DB
             webhook_url = f"{N8N_BASE_URL.rstrip('/')}/webhook/learner-query"
             try:
-                probe_res = requests.post(webhook_url, json={"learner_id": "LRN-1002", "query_text": "ping"}, timeout=3)
+                probe_res = requests.post(webhook_url, json={"learner_id": "LRN-1002", "query_text": "What is SQL?"}, timeout=4)
                 if probe_res.status_code == 404:
-                    print("   [SETUP] Webhook not registered in-memory yet; restarting n8n to reload active routes from DB...")
+                    print("   [SETUP] Webhook not registered in router yet; restarting container to load active DB routes...")
                     subprocess.run(["docker", "restart", container_name], capture_output=True, text=True, timeout=25)
-                    time.sleep(3)
-                    for _ in range(20):
+                    time.sleep(4)
+                    for _ in range(25):
                         if is_service_online(N8N_BASE_URL):
                             break
                         time.sleep(2)
             except Exception:
                 pass
 
-            # 5. Settle time for in-memory router
-            for _ in range(15):
+            # 5. Wait for live webhook readiness (HTTP 200 + valid response)
+            print("   [SETUP] Awaiting live webhook endpoint readiness (HTTP 200)...")
+            webhook_ready = False
+            for _ in range(20):
                 try:
-                    probe_res = requests.post(webhook_url, json={"learner_id": "LRN-1002", "query_text": "ping"}, timeout=3)
-                    if probe_res.status_code != 404:
+                    probe_res = requests.post(webhook_url, json={"learner_id": "LRN-1002", "query_text": "What is SQL?"}, timeout=4)
+                    if probe_res.status_code == 200 and ("status" in probe_res.json()):
+                        webhook_ready = True
                         break
                 except Exception:
                     pass
                 time.sleep(1.5)
 
-            print("   [SETUP] Workflow imported & activated in n8n container.")
+            if not webhook_ready:
+                raise RuntimeError("n8n webhook /webhook/learner-query failed to become ready within timeout period.")
+
+            print("   [SETUP] Workflow fully activated, live, and validated in n8n container!")
             return True
     except Exception as e:
-        print(f"   [NOTICE] Container CLI import notice: {e}")
+        print(f"   [SETUP ERROR] Container CLI import error: {e}")
+        raise
     return False
 
 def main():
@@ -298,11 +304,55 @@ def main():
     assert row_en is not None, f"Escalation ticket {data_en.get('ticket_id')} was not found in SQLite DB!"
     print(f"   [VERIFIED] SQLite DB Record Confirmed: {row_en}")
 
-    max_lat = max(lat_rag, lat_ar, lat_en)
+    # PATH D: Technical Task Inability (Must Route to Automated RAG, 0 SQLite Records)
+    print("\n--- Test Path D: Technical Task Inability (Automated RAG Disambiguation) ---")
+    tech_payload = {
+        "learner_id": "LRN-1002",
+        "query_text": "مش قادر أفتح ملف المحاضرة، ممكن تساعدني؟",
+        "cohort_city": "Cairo"
+    }
+    t0 = time.time()
+    resp_tech = requests.post(webhook_url, json=tech_payload, timeout=12)
+    lat_tech = (time.time() - t0) * 1000
+
+    print(f"   Status Code: {resp_tech.status_code}")
+    print(f"   Roundtrip Latency: {lat_tech:.2f}ms (SLA < 3500ms)")
+    assert resp_tech.status_code == 200
+    assert lat_tech < 3500.0, f"Path D SLA breached: {lat_tech:.2f}ms >= 3500.0ms"
+    data_tech = resp_tech.json()
+    assert data_tech.get("status") == "resolved_auto", f"Expected 'resolved_auto', got {data_tech.get('status')}"
+    assert data_tech.get("db_persisted") is False, "Technical task query must NOT persist ticket to DB"
+    print("   Routing Decision:", data_tech.get("status"))
+    print("   [VERIFIED] Technical query correctly routed to automated RAG without false escalation.")
+
+    # PATH E: Urgent Emergency Plea & Withdrawal (Human Mentor Escalation - Critical Priority)
+    print("\n--- Test Path E: Urgent Emergency Plea & Withdrawal Intent ---")
+    urgent_payload = {
+        "learner_id": "LRN-1005",
+        "query_text": "الحقوني، أنا هسيب الكورس ومخنوق جدا ومش عارف أكمل",
+        "cohort_city": "Cairo"
+    }
+    t0 = time.time()
+    resp_urgent = requests.post(webhook_url, json=urgent_payload, timeout=12)
+    lat_urgent = (time.time() - t0) * 1000
+
+    print(f"   Status Code: {resp_urgent.status_code}")
+    print(f"   Roundtrip Latency: {lat_urgent:.2f}ms (SLA < 3500ms)")
+    assert resp_urgent.status_code == 200
+    assert lat_urgent < 3500.0, f"Path E SLA breached: {lat_urgent:.2f}ms >= 3500.0ms"
+    data_urgent = resp_urgent.json()
+    assert data_urgent.get("status") == "escalated", f"Expected 'escalated', got {data_urgent.get('status')}"
+    assert data_urgent.get("priority") == "Critical", f"Expected Critical, got {data_urgent.get('priority')}"
+    assert data_urgent.get("db_persisted") is True
+    print("   Routing Decision:", data_urgent.get("status"))
+    print("   Priority:", data_urgent.get("priority"))
+    print("   [VERIFIED] Emergency plea correctly escalated to Human Mentor Desk.")
+
+    max_lat = max(lat_rag, lat_ar, lat_en, lat_tech, lat_urgent)
     assert max_lat < 3500.0, f"Overall SLA breached: {max_lat:.2f}ms >= 3500.0ms"
 
     print("\n" + "=" * 65)
-    print("ALL 3 N8N DOCKER WEBHOOK ROUTING & SQLITE PERSISTENCE TESTS PASSED!")
+    print("ALL 5 N8N DOCKER WEBHOOK ROUTING & SQLITE PERSISTENCE TESTS PASSED!")
     print(f"Max Latency Observed: {max_lat:.2f}ms (Strict SLA < 3500ms 100% SATISFIED)")
     print("=" * 65)
 

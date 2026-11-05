@@ -36,8 +36,8 @@ requiredNodes.forEach(name => {
 });
 console.log(`   [PASS] All ${requiredNodes.length} required nodes present with valid positions and types.`);
 
-// 2. Validate Node Connections
-console.log('\n2. Validating Connection Graph Routing...');
+// 2. Validate Node Connections & Timeout Budgets
+console.log('\n2. Validating Connection Graph Routing & Timeout Budgets...');
 const conn = workflow.connections;
 assert(conn['HTTP Webhook Trigger'].main[0][0].node === 'Parse & Validate Query');
 assert(conn['Parse & Validate Query'].main[0][0].node === 'Analyze Sentiment, NER & Vector RAG');
@@ -48,7 +48,14 @@ const ifConns = conn['Deliberative Decision Router'].main;
 assert(ifConns.length === 2, 'IF node must have 2 output branches');
 assert(ifConns[0][0].node === 'Persist Escalation to SQLite DB', 'Output 0 (True) must route to DB escalation');
 assert(ifConns[1][0].node === 'Format Automated RAG Response', 'Output 1 (False) must route to RAG response');
-console.log('   [PASS] Connection graph verified: True branch -> Escalation DB, False branch -> Automated RAG.');
+
+// Timeout budgets
+const httpAnalysisNode = nodeMap.get('Analyze Sentiment, NER & Vector RAG');
+assert(httpAnalysisNode.parameters.options.timeout <= 2500, 'HTTP analysis node timeout must be budgeted <= 2500ms to guarantee <3500ms SLA');
+const httpDbNode = nodeMap.get('Persist Escalation to SQLite DB');
+assert(httpDbNode.parameters.options.timeout <= 2000, 'HTTP DB node timeout must be budgeted <= 2000ms');
+
+console.log('   [PASS] Connection graph & timeout budgets verified (headroom reserved for SLA < 3.5s).');
 
 // 3. Execute JS Code Node: Parse & Validate Query in Node.js VM
 console.log('\n3. Testing Code Node: Parse & Validate Query (node-parse-query)...');
@@ -59,6 +66,7 @@ function runNodeVm(code, contextVars) {
   const sandbox = {
     ...contextVars,
     Date: Date,
+    Math: Math,
     Error: Error,
     Boolean: Boolean,
     console: console
@@ -83,7 +91,8 @@ assert.strictEqual(parsedResult.learner_id, 'LRN-1019');
 assert(parsedResult.query_text.includes('مش فاهم'));
 assert.strictEqual(parsedResult.cohort_city, 'Alexandria');
 assert(parsedResult.received_at, 'Missing received_at timestamp');
-console.log('   [PASS] Successfully parsed complex text with quotes and multiline Arabic characters.');
+assert(parsedResult.correlation_id && parsedResult.correlation_id.startsWith('corr-'), 'Missing or invalid correlation_id');
+console.log('   [PASS] Successfully parsed complex text with correlation_id generation.');
 
 // 3B. Rejection of missing learner_id
 assert.throws(() => {
@@ -115,16 +124,19 @@ console.log('\n5. Testing Code Node: Format Escalation Response...');
 const escNode = nodeMap.get('Format Escalation Response');
 const escCode = escNode.parameters.jsCode;
 
-// 5A. Legitimate DB persistence
-const validEscContext = {
-  $json: {
-    status: 'persisted',
-    ticket_id: 'TCK-ESC-048291'
-  },
-  $: (nodeName) => ({
+const mockNodeAccessor = (nodeName) => {
+  if (nodeName === 'Parse & Validate Query') {
+    return {
+      first: () => ({
+        json: { correlation_id: 'corr-test-12345', learner_id: 'LRN-1019' }
+      })
+    };
+  }
+  return {
     first: () => ({
       json: {
         learner_id: 'LRN-1019',
+        correlation_id: 'corr-test-12345',
         assigned_queue: 'Urgent_Mentor_Support_Desk',
         priority: 'Critical',
         sentiment: { polarity: -0.6, subjectivity: 0.8 },
@@ -133,14 +145,24 @@ const validEscContext = {
         sla_met: true
       }
     })
-  })
+  };
+};
+
+// 5A. Legitimate DB persistence
+const validEscContext = {
+  $json: {
+    status: 'persisted',
+    ticket_id: 'TCK-ESC-048291'
+  },
+  $: mockNodeAccessor
 };
 const escResult = runNodeVm(escCode, validEscContext);
 assert.strictEqual(escResult.status, 'escalated');
 assert.strictEqual(escResult.ticket_id, 'TCK-ESC-048291');
 assert.strictEqual(escResult.db_persisted, true);
+assert.strictEqual(escResult.correlation_id, 'corr-test-12345');
 assert.strictEqual(escResult.sla_met, true);
-console.log('   [PASS] Valid persistence verified and formatted.');
+console.log('   [PASS] Valid persistence verified with correlation_id tracking.');
 
 // 5B. Failure when DB did not persist (Fake fallback prevented)
 const failedDbContext = {
@@ -168,14 +190,16 @@ const ragContext = {
     agent_response: 'Here is the SQL tutorial.',
     execution_latency_ms: 152.0,
     sla_met: true
-  }
+  },
+  $: mockNodeAccessor
 };
 const ragResult = runNodeVm(ragCode, ragContext);
 assert.strictEqual(ragResult.status, 'resolved_auto');
 assert(ragResult.ticket_id.startsWith('TCK-AUTO-'));
 assert.strictEqual(ragResult.db_persisted, false);
+assert.strictEqual(ragResult.correlation_id, 'corr-test-12345');
 assert.strictEqual(ragResult.extracted_modules[0], 'MOD-101');
-console.log('   [PASS] Automated RAG response successfully generated with chunk metadata.');
+console.log('   [PASS] Automated RAG response successfully generated with chunk metadata & correlation_id.');
 
 console.log('\n=================================================================');
 console.log('ALL N8N WORKFLOW NODE JAVASCRIPT & GRAPH TESTS PASSED 100%!');

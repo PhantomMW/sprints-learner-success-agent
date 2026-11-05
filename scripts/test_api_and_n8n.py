@@ -95,7 +95,7 @@ assert lat_ar_distress < 3500.0, f"SLA breached: {lat_ar_distress:.2f}ms >= 3500
 # 3C. Test Routine Arabic Educational Inquiry (Must Route to Automated RAG, NOT Escalate)
 ar_routine_payload = {
     "learner_id": "LRN-1002",
-    "query_text": "ممكن توضيح لمعنى autograd وطريقة حساب gradient في PyTorch؟"
+    "query_text": "مش فاهم Gradient Descent، ممكن شرح؟"
 }
 t0 = time.time()
 resp_ar_routine = client.post("/api/v1/analyze", json=ar_routine_payload)
@@ -108,6 +108,56 @@ assert resp_ar_routine.status_code == 200
 assert data_ar_routine["routing_decision"] == "AUTOMATED_RAG_PIPELINE"
 assert data_ar_routine["execution_latency_ms"] < 3500.0
 assert lat_ar_routine < 3500.0, f"SLA breached: {lat_ar_routine:.2f}ms >= 3500ms"
+
+# 3D. Test Technical Task Inability (Must Route to Automated RAG, NOT Escalate)
+ar_tech_payload = {
+    "learner_id": "LRN-1002",
+    "query_text": "مش قادر أفتح ملف المحاضرة، ممكن تساعدني؟"
+}
+t0 = time.time()
+resp_ar_tech = client.post("/api/v1/analyze", json=ar_tech_payload)
+lat_ar_tech = (time.time() - t0) * 1000
+print(f"\n3D. Technical Task Inability - Automated RAG ({lat_ar_tech:.2f}ms):")
+data_ar_tech = resp_ar_tech.json()
+print("   Routing Decision:", data_ar_tech["routing_decision"])
+print("   Arabic Context:", data_ar_tech.get("arabic_context", {}).get("category"))
+assert resp_ar_tech.status_code == 200
+assert data_ar_tech["routing_decision"] == "AUTOMATED_RAG_PIPELINE"
+assert lat_ar_tech < 3500.0, f"SLA breached: {lat_ar_tech:.2f}ms >= 3500ms"
+
+# 3E. Test Academic Delay Query (Must Escalate with High Priority)
+ar_delay_payload = {
+    "learner_id": "LRN-1005",
+    "query_text": "مش لاحق أسلم التاسكات والتراكم زاد عليا ومحتاج مساعدة"
+}
+t0 = time.time()
+resp_ar_delay = client.post("/api/v1/analyze", json=ar_delay_payload)
+lat_ar_delay = (time.time() - t0) * 1000
+print(f"\n3E. Academic Delay Query Escalation ({lat_ar_delay:.2f}ms):")
+data_ar_delay = resp_ar_delay.json()
+print("   Routing Decision:", data_ar_delay["routing_decision"])
+print("   Priority:", data_ar_delay["priority"])
+assert resp_ar_delay.status_code == 200
+assert data_ar_delay["routing_decision"] == "HUMAN_OPERATOR_ESCALATION"
+assert data_ar_delay["priority"] in ["High", "Critical"]
+assert lat_ar_delay < 3500.0, f"SLA breached: {lat_ar_delay:.2f}ms >= 3500ms"
+
+# 3F. Test Urgent Emergency Plea (Must Escalate with Critical Priority)
+ar_urgent_payload = {
+    "learner_id": "LRN-1005",
+    "query_text": "الحقوني، أنا هسيب الكورس ومخنوق جدا ومش عارف أكمل"
+}
+t0 = time.time()
+resp_ar_urgent = client.post("/api/v1/analyze", json=ar_urgent_payload)
+lat_ar_urgent = (time.time() - t0) * 1000
+print(f"\n3F. Urgent Emergency Plea Escalation ({lat_ar_urgent:.2f}ms):")
+data_ar_urgent = resp_ar_urgent.json()
+print("   Routing Decision:", data_ar_urgent["routing_decision"])
+print("   Priority:", data_ar_urgent["priority"])
+assert resp_ar_urgent.status_code == 200
+assert data_ar_urgent["routing_decision"] == "HUMAN_OPERATOR_ESCALATION"
+assert data_ar_urgent["priority"] == "Critical"
+assert lat_ar_urgent < 3500.0, f"SLA breached: {lat_ar_urgent:.2f}ms >= 3500ms"
 
 # 4. Test Persistent Escalation Ticket Logging to SQLite DB
 esc_payload = {
@@ -159,6 +209,18 @@ resp_unknown = client.post("/api/v1/tickets/escalate", json=esc_unknown)
 print("\n4B. Unknown Learner Escalation Rejection:")
 print("    Status code:", resp_unknown.status_code, "(Detail:", resp_unknown.json().get("detail"), ")")
 assert resp_unknown.status_code == 404
+
+# 4C. Idempotent Duplicate Ticket Deduplication:
+resp_dup = client.post("/api/v1/tickets/escalate", json=esc_payload)
+data_dup = resp_dup.json()
+print(f"\n4C. Idempotent Duplicate Ticket Deduplication:")
+print("    Status code:", resp_dup.status_code)
+print("    Original Ticket ID:", data_esc["ticket_id"])
+print("    Deduplicated Ticket ID:", data_dup.get("ticket_id"))
+print("    Idempotent Flag:", data_dup.get("idempotent_deduplicated"))
+assert resp_dup.status_code == 200
+assert data_dup.get("ticket_id") == data_esc["ticket_id"], "Idempotent retry must return existing ticket ID"
+assert data_dup.get("idempotent_deduplicated") is True
 
 # 5. Test PyTorch Supervised Risk Classifier (Sprint 2 - Exp B Full Trajectory)
 risk_payload_high = {

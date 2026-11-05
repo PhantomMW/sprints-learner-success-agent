@@ -338,7 +338,31 @@ def escalate_ticket_to_db(req: TicketEscalationRequest):
                 
             # Map module ID to valid course_modules foreign key or None
             resolved_mod = resolve_module_id(req.module_id, cur)
-            
+
+            # Idempotency & Anti-duplicate check:
+            # Prevents duplicate ticket creation if the exact same request is retried
+            cur.execute("""
+                SELECT ticket_id, status, priority, created_at 
+                FROM support_tickets 
+                WHERE learner_id = ? AND query_text = ? AND status = 'Pending_Human_Escalation'
+                ORDER BY created_at DESC LIMIT 1
+            """, (req.learner_id, req.query_text))
+            existing_ticket = cur.fetchone()
+            if existing_ticket:
+                logger.info(f"Idempotent deduplication: Existing pending ticket {existing_ticket['ticket_id']} returned for learner {req.learner_id}.")
+                return {
+                    "status": "persisted",
+                    "ticket_id": existing_ticket['ticket_id'],
+                    "persisted_to_db": True,
+                    "mapped_module_id": resolved_mod,
+                    "db_record_status": existing_ticket['status'],
+                    "module_id": resolved_mod,
+                    "priority": existing_ticket['priority'],
+                    "idempotent_deduplicated": True,
+                    "execution_latency_ms": round((time.time() - start_time) * 1000, 2),
+                    "sla_met": True
+                }
+
             cur.execute("""
                 INSERT INTO support_tickets (
                     ticket_id, learner_id, module_id, query_text,

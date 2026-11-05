@@ -13,7 +13,7 @@
 [![spaCy](https://img.shields.io/badge/spaCy-3.8%20NER-09A3D5?style=for-the-badge&logo=spacy&logoColor=white)](https://spacy.io/)
 [![Python](https://img.shields.io/badge/Python-3.10-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 <br/>
-[![Release](https://img.shields.io/badge/Release-v1.0.0-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.0.0)
+[![Release](https://img.shields.io/badge/Release-v1.2.0-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.2.0)
 [![CI Pipeline](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml)
 [![F1-Score](https://img.shields.io/badge/F1_Score-1.0000_(Target_%E2%89%A5_0.82)-success?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
 [![Latency SLA](https://img.shields.io/badge/Latency-154ms_(SLA_%3C_3.5s)-blueviolet?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
@@ -25,7 +25,7 @@
   <a href="#-acceptance-criteria-verification-matrix"><b>Quality Bar & Rubric</b></a> •
   <a href="#-quickstart--execution-guide"><b>Quickstart</b></a> •
   <a href="#-capstone-presentation--video-walkthrough"><b>Reports & Demo</b></a> •
-  <a href="https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.0.0"><b>Download Release Assets</b></a>
+  <a href="https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.2.0"><b>Download Release Assets</b></a>
 </p>
 
 </div>
@@ -155,6 +155,9 @@ erDiagram
 | **spaCy NER Benchmark (50 Samples)** | Module & Date Extraction | **Module F1: 0.8125 \| Date F1: 0.9091** | 🟢 **PASSED** |
 | **Word2Vec vs FastText OOV Test** | Empirical Benchmark | Tested: Word2Vec KeyError on typos vs FastText n-grams | 🟢 **PASSED** |
 | **Semantic Vector RAG** | Dense Vector Retrieval | Cosine similarity ranking over syllabus vectors | 🟢 **PASSED** |
+| **Egyptian Arabic Dialect Distress NLP** | $\ge 0.90$ Precision & Recall (26 Cases) | **Precision: 1.0000 \| Recall: 1.0000 \| F1: 1.0000** | 🟢 **OPTIMAL DISAMBIGUATION (0 FP, 0 FN)** |
+| **Technical vs Distress Disambiguation** | Prevent false escalation of technical tasks | Tested: 'مش قادر أفتح الملف' -> Automated RAG (0 FP) | 🟢 **PASSED** |
+| **Ticket Deduplication & Idempotency** | Prevent duplicate tickets on retried requests | Tested in `/api/v1/tickets/escalate` and SQLite DB | 🟢 **PASSED** |
 | **Deliberative Routing & DB Persistence**| Escalate negative sentiment | Escalated tickets persisted to SQLite `support_tickets` | 🟢 **PASSED** |
 
 ---
@@ -311,7 +314,7 @@ To ensure architectural transparency:
 * **Architecture Presentation Deck:** [`docs/Sprints_Architecture_Presentation.pdf`](docs/Sprints_Architecture_Presentation.pdf) (10-slide executive presentation)
 * **Demo Walkthrough Video:** [`demo/Demo_Walkthrough.mp4`](demo/Demo_Walkthrough.mp4) (3.5-minute video walkthrough)
 * **Verbatim Demo Script:** [`demo/DEMO_SCRIPT.md`](demo/DEMO_SCRIPT.md)
-* **GitHub Official Release:** [v1.0.0 Graduation Release](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.0.0)
+* **GitHub Official Release:** [v1.0.0 Graduation Release](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.2.0)
 
 ---
 
