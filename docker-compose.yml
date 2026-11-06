@@ -27,6 +27,7 @@ services:
       - PYTHONUNBUFFERED=1
       - SPRINTS_API_KEY=${SPRINTS_API_KEY}
       - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
       - MAX_PAYLOAD_SIZE=${MAX_PAYLOAD_SIZE:-65536}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-sprints_redis_vault_secret_2026}
@@ -49,6 +50,7 @@ services:
       - WEBHOOK_URL=http://localhost:5678/
       - FASTAPI_BASE_URL=http://sprints-ai-api:8000
       - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-sprints_n8n_vault_encryption_key_2026}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=true
       - NODE_FUNCTION_ALLOW_BUILTIN=
       - GENERIC_TIMEZONE=Africa/Cairo
