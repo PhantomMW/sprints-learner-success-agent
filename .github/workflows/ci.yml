@@ -114,21 +114,7 @@ jobs:
           timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5678 | grep -E "200|302|401"; do sleep 3; done' || (echo "--- n8n Container Logs on Failure ---" && docker logs sprints_n8n_orchestrator && exit 1)
           sleep 5
           echo "Seeding isolated n8n Header Auth credentials..."
-          docker exec sprints_n8n_orchestrator sh -c 'cat << "EOF" > /tmp/sprints_creds.json
-[
-  {
-    "id": "sprints-api-key-cred",
-    "name": "Sprints FastAPI Header Auth",
-    "type": "httpHeaderAuth",
-    "data": {
-      "name": "X-API-Key",
-      "value": "'"$FASTAPI_API_KEY"'"
-    }
-  }
-]
-EOF
-n8n import:credentials --input=/tmp/sprints_creds.json
-rm -f /tmp/sprints_creds.json'
+          docker exec sprints_n8n_orchestrator sh -c "echo '[{\"id\":\"sprints-api-key-cred\",\"name\":\"Sprints FastAPI Header Auth\",\"type\":\"httpHeaderAuth\",\"data\":{\"name\":\"X-API-Key\",\"value\":\"$FASTAPI_API_KEY\"}}]' > /tmp/sprints_creds.json && n8n import:credentials --input=/tmp/sprints_creds.json && rm -f /tmp/sprints_creds.json"
           echo "Importing n8n workflow..."
           docker exec sprints_n8n_orchestrator n8n import:workflow --input=/workflows/learner_success_agent.json
           echo "Publishing n8n workflow..."
