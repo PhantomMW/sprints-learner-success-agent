@@ -51,13 +51,11 @@
             {
               "name": "Idempotency-Key",
               "value": "={{$json.idempotency_key}}"
-            },
-            {
-              "name": "X-API-Key",
-              "value": "={{$env.FASTAPI_API_KEY}}"
             }
           ]
-        }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "id": "node-sentiment-ner-router",
       "name": "Analyze Sentiment, NER & Vector RAG",
@@ -69,7 +67,13 @@
       ],
       "retryOnFail": true,
       "maxTries": 2,
-      "waitBetweenTries": 40
+      "waitBetweenTries": 40,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "sprints-api-key-cred",
+          "name": "Sprints FastAPI Header Auth"
+        }
+      }
     },
     {
       "parameters": {
@@ -112,13 +116,11 @@
             {
               "name": "Idempotency-Key",
               "value": "={{$json.idempotency_key}}"
-            },
-            {
-              "name": "X-API-Key",
-              "value": "={{$env.FASTAPI_API_KEY}}"
             }
           ]
-        }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "id": "node-persist-escalation-db",
       "name": "Persist Escalation to SQLite DB",
@@ -130,7 +132,13 @@
       ],
       "retryOnFail": true,
       "maxTries": 2,
-      "waitBetweenTries": 40
+      "waitBetweenTries": 40,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "sprints-api-key-cred",
+          "name": "Sprints FastAPI Header Auth"
+        }
+      }
     },
     {
       "parameters": {

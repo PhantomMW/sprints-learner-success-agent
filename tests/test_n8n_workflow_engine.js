@@ -170,15 +170,17 @@ const isolatedResult = runNodeVm(parseCode, isolatedSandbox);
 assert.strictEqual(isolatedResult.learner_id, 'LRN-1001');
 console.log('   [PASS] Hardened Least-Privilege Isolation: Code node executes safely without $env dependency.');
 
-// 3G. Verify Scoped Credentials in HTTP Request Nodes
-const analysisNodeHeaders = httpAnalysisNode.parameters.headerParameters.parameters;
-const hasAnalysisApiKey = analysisNodeHeaders.some(h => h.name === 'X-API-Key' && h.value.includes('FASTAPI_API_KEY'));
-assert(hasAnalysisApiKey, 'HTTP Analysis node must use scoped FASTAPI_API_KEY');
+// 3G. Verify Scoped Credentials Architecture in HTTP Request Nodes (n8n Credential Vault)
+assert.strictEqual(httpAnalysisNode.parameters.authentication, 'genericCredentialType');
+assert.strictEqual(httpAnalysisNode.parameters.genericAuthType, 'httpHeaderAuth');
+assert(httpAnalysisNode.credentials && httpAnalysisNode.credentials.httpHeaderAuth, 'HTTP Analysis node must reference httpHeaderAuth credential');
+assert.strictEqual(httpAnalysisNode.credentials.httpHeaderAuth.id, 'sprints-api-key-cred');
 
-const dbNodeHeaders = httpDbNode.parameters.headerParameters.parameters;
-const hasDbApiKey = dbNodeHeaders.some(h => h.name === 'X-API-Key' && h.value.includes('FASTAPI_API_KEY'));
-assert(hasDbApiKey, 'HTTP DB Escalation node must use scoped FASTAPI_API_KEY');
-console.log('   [PASS] Scoped service credentials (FASTAPI_API_KEY) verified on HTTP request nodes.');
+assert.strictEqual(httpDbNode.parameters.authentication, 'genericCredentialType');
+assert.strictEqual(httpDbNode.parameters.genericAuthType, 'httpHeaderAuth');
+assert(httpDbNode.credentials && httpDbNode.credentials.httpHeaderAuth, 'HTTP DB Escalation node must reference httpHeaderAuth credential');
+assert.strictEqual(httpDbNode.credentials.httpHeaderAuth.id, 'sprints-api-key-cred');
+console.log('   [PASS] Scoped service credentials (sprints-api-key-cred) verified in HTTP request nodes.');
 
 // 4. Test Deliberative IF Evaluation
 console.log('\n4. Testing IF Branching Logic (Deliberative Decision Router)...');

@@ -113,6 +113,22 @@ jobs:
           timeout 60 bash -c 'until curl -s http://127.0.0.1:8000/api/v1/health | grep -q healthy; do sleep 2; done' || (echo "--- Service Container Logs on Failure ---" && docker compose logs && exit 1)
           timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5678 | grep -E "200|302|401"; do sleep 3; done' || (echo "--- n8n Container Logs on Failure ---" && docker logs sprints_n8n_orchestrator && exit 1)
           sleep 5
+          echo "Seeding isolated n8n Header Auth credentials..."
+          docker exec sprints_n8n_orchestrator sh -c 'cat << "EOF" > /tmp/sprints_creds.json
+[
+  {
+    "id": "sprints-api-key-cred",
+    "name": "Sprints FastAPI Header Auth",
+    "type": "httpHeaderAuth",
+    "data": {
+      "name": "X-API-Key",
+      "value": "'"$FASTAPI_API_KEY"'"
+    }
+  }
+]
+EOF
+n8n import:credentials --input=/tmp/sprints_creds.json
+rm -f /tmp/sprints_creds.json'
           echo "Importing n8n workflow..."
           docker exec sprints_n8n_orchestrator n8n import:workflow --input=/workflows/learner_success_agent.json
           echo "Publishing n8n workflow..."
@@ -122,7 +138,7 @@ jobs:
           timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5678 | grep -E "200|302|401"; do sleep 3; done'
           sleep 5
           echo "Verifying live webhook readiness and full end-to-end execution (HTTP 200 OK)..."
-          timeout 60 bash -c 'until [ $(curl -s -o /tmp/webhook_probe.json -w "%{http_code}" -X POST http://127.0.0.1:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"What is relational SQL?\"}") -eq 200 ]; do echo "Awaiting webhook readiness..."; sleep 3; done'
+          timeout 60 bash -c 'until [ "$(curl -s -o /tmp/webhook_probe.json -w "%{http_code}" -X POST http://127.0.0.1:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"What is relational SQL?\"}")" -eq 200 ]; do echo "Awaiting webhook readiness... Response: $(cat /tmp/webhook_probe.json 2>/dev/null)"; sleep 3; done' || (echo "--- n8n Container Logs on Probe Failure ---" && docker logs sprints_n8n_orchestrator && echo "--- FastAPI Container Logs on Probe Failure ---" && docker logs sprints_ai_service && exit 1)
           docker compose ps
 
       - name: Live n8n Docker Webhook Integration Tests (Dual Branch Routing & SQLite Persistence)

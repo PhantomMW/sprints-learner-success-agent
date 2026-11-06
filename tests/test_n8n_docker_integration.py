@@ -65,6 +65,23 @@ def auto_import_workflow_if_docker(container_name: str = "sprints_n8n_orchestrat
         )
         if container_name in ps_check.stdout:
             print(f"   [SETUP] Detected active container '{container_name}'.")
+            print("   [SETUP] Seeding isolated Header Auth credentials into n8n vault...")
+            api_key = os.environ.get("FASTAPI_API_KEY") or os.environ.get("SPRINTS_API_KEY", "sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a")
+            cred_payload = json.dumps([{
+                "id": "sprints-api-key-cred",
+                "name": "Sprints FastAPI Header Auth",
+                "type": "httpHeaderAuth",
+                "data": {
+                    "name": "X-API-Key",
+                    "value": api_key
+                }
+            }])
+            subprocess.run([
+                "docker", "exec", container_name,
+                "sh", "-c",
+                f"echo '{cred_payload}' > /tmp/sprints_creds.json && n8n import:credentials --input=/tmp/sprints_creds.json && rm -f /tmp/sprints_creds.json"
+            ], capture_output=True, text=True, timeout=20)
+
             print("   [SETUP] Auto-importing workflow from /workflows/learner_success_agent.json...")
             
             # 1. Import workflow JSON with strict return code check

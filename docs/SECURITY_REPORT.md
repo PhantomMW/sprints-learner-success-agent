@@ -68,10 +68,11 @@ To prevent privilege confusion or authentication bypass, the architecture strict
 2. **Dedicated Webhook Routes (`/api/v1/webhook/analyze`, `/api/v1/webhook/learner-query`):**
    - Protected exclusively by `verify_mandatory_webhook_hmac`.
    - **Zero Bypass:** Standard API Keys CANNOT authenticate or bypass webhook verification. Even if a valid `X-API-Key` is supplied, requests lacking HMAC or carrying invalid signatures are rejected immediately.
-3. **n8n Orchestrator Credential Isolation (Least-Privilege Scoping):**
-   - `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` is strictly enforced, blocking Code nodes from arbitrary environment variable access (`$env`).
-   - Internal service-to-service communication uses scoped credential `FASTAPI_API_KEY` injected explicitly into the HTTP Request node headers.
-   - `Parse & Validate Query` runs in an isolated JS sandbox with zero dependencies on global secrets.
+3. **n8n Orchestrator Credential Isolation (Least-Privilege Scoping & Vault Management):**
+   - `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` and `NODE_FUNCTION_ALLOW_BUILTIN=` are strictly enforced, blocking Code nodes and expressions from arbitrary environment variable access (`$env`) or Node.js built-in runtime modules (`crypto`, `fs`).
+   - Internal service-to-service communication uses n8n's isolated Credential Vault (`httpHeaderAuth` credential `sprints-api-key-cred`), injecting `X-API-Key` strictly via n8n's internal database with zero plaintext keys in workflows.
+   - Master secrets (`WEBHOOK_SECRET`, `SESSION_SECRET`, `REDIS_PASSWORD`) are never passed to the n8n orchestrator container environment.
+   - `Parse & Validate Query` runs in an isolated JS sandbox with zero dependencies on global secrets or Node builtins.
    - External incoming webhooks continue to require strict HMAC-SHA256 signatures with timestamp freshness and atomic replay verification.
 
 ### Webhook Security Verification Matrix (All 6 Scenarios Tested):
