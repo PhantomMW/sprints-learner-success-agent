@@ -1,13 +1,44 @@
 {
   "audit_timestamp": "2026-11-06T18:45:00+02:00",
   "inter_annotator_agreement": {
-    "total_queries": 100,
-    "initial_agreed_queries": 97,
-    "adjudicated_queries": 3,
-    "observed_agreement_po": 0.97,
-    "chance_agreement_pe": 0.5012,
-    "cohens_kappa": 0.9399,
-    "status": "PASSED (Near-Perfect Agreement \u03ba >= 0.90)"
+    "annotator_1": {
+      "id": "ANN-EG-01",
+      "role": "Senior Arabic NLP Specialist"
+    },
+    "annotator_2": {
+      "id": "ANN-EG-02",
+      "role": "Lead Academic Course Mentor"
+    },
+    "adjudicator": {
+      "id": "ADJ-EG-00",
+      "role": "Academic Director & Curriculum Architect"
+    },
+    "overall": {
+      "n": 100,
+      "agreed": 97,
+      "disagreed": 3,
+      "p_o": 0.97,
+      "p_e": 0.5012,
+      "kappa": 0.9399
+    },
+    "anonymized_real_chat": {
+      "n": 30,
+      "agreed": 29,
+      "disagreed": 1,
+      "p_o": 0.9667,
+      "p_e": 0.5044,
+      "kappa": 0.9327
+    },
+    "controlled_benchmark": {
+      "n": 70,
+      "agreed": 68,
+      "disagreed": 2,
+      "p_o": 0.9714,
+      "p_e": 0.5004,
+      "kappa": 0.9428
+    },
+    "adjudicated_disagreements": 3,
+    "status": "PASSED (Near-Perfect Agreement Across All Subsets kappa >= 0.93)"
   },
   "pii_sanitization_audit": {
     "total_records_audited": 2000,

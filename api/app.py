@@ -298,11 +298,31 @@ ACTIVE_SESSIONS: Dict[str, Dict[str, Any]] = {}
 REVOKED_SESSIONS: set = set()
 
 def save_session_state(jti: str, session_data: dict, ttl_seconds: int):
+    env = os.environ.get("ENVIRONMENT", "development").lower()
     redis_url = os.environ.get("REDIS_URL")
+    
+    if env == "production":
+        if not redis_url:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Security Error: Clustered production deployment requires REDIS_URL for distributed session state."
+            )
+        try:
+            import redis
+            r = redis.from_url(redis_url, socket_timeout=2.0)
+            r.set(f"sess:{jti}", json.dumps(session_data), ex=ttl_seconds)
+            return
+        except Exception as e:
+            logger.error(f"Production Distributed Security Failure: Redis error during session write (Fail-Closed): {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Session Coordinator Unavailable: Refusing to store session in production to prevent multi-worker split-brain."
+            )
+
     if redis_url:
         try:
             import redis
-            r = redis.from_url(redis_url)
+            r = redis.from_url(redis_url, socket_timeout=2.0)
             r.set(f"sess:{jti}", json.dumps(session_data), ex=ttl_seconds)
             return
         except Exception as e:
@@ -311,11 +331,29 @@ def save_session_state(jti: str, session_data: dict, ttl_seconds: int):
         ACTIVE_SESSIONS[jti] = session_data
 
 def is_session_revoked_or_missing(jti: str) -> bool:
+    env = os.environ.get("ENVIRONMENT", "development").lower()
     redis_url = os.environ.get("REDIS_URL")
+    
+    if env == "production":
+        if not redis_url:
+            logger.error("Production Distributed Security Error: Missing REDIS_URL during session lookup. Failing closed (treating as missing/revoked).")
+            return True
+        try:
+            import redis
+            r = redis.from_url(redis_url, socket_timeout=2.0)
+            if r.exists(f"revoked_sess:{jti}"):
+                return True
+            if not r.exists(f"sess:{jti}"):
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Production Distributed Security Failure: Redis error during session verification (Fail-Closed): {e}")
+            return True
+
     if redis_url:
         try:
             import redis
-            r = redis.from_url(redis_url)
+            r = redis.from_url(redis_url, socket_timeout=2.0)
             if r.exists(f"revoked_sess:{jti}"):
                 return True
             if not r.exists(f"sess:{jti}"):
@@ -331,11 +369,32 @@ def is_session_revoked_or_missing(jti: str) -> bool:
         return False
 
 def record_session_revocation(jti: str, ttl_remaining: int = 7200):
+    env = os.environ.get("ENVIRONMENT", "development").lower()
     redis_url = os.environ.get("REDIS_URL")
+    
+    if env == "production":
+        if not redis_url:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Security Error: Clustered production deployment requires REDIS_URL for distributed session revocation."
+            )
+        try:
+            import redis
+            r = redis.from_url(redis_url, socket_timeout=2.0)
+            r.set(f"revoked_sess:{jti}", "1", ex=max(60, ttl_remaining))
+            r.delete(f"sess:{jti}")
+            return
+        except Exception as e:
+            logger.error(f"Production Distributed Security Failure: Redis error during session revocation (Fail-Closed): {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Session Coordinator Unavailable: Refusing revocation in production to prevent partial revocation."
+            )
+
     if redis_url:
         try:
             import redis
-            r = redis.from_url(redis_url)
+            r = redis.from_url(redis_url, socket_timeout=2.0)
             r.set(f"revoked_sess:{jti}", "1", ex=max(60, ttl_remaining))
             r.delete(f"sess:{jti}")
         except Exception as e:
@@ -613,6 +672,66 @@ async def verify_mandatory_webhook_hmac(
     raw_body = await request.body()
     verify_hmac_sha256_signature(raw_body, sig, x_timestamp)
     return True
+
+async def verify_webhook_or_scoped_api_key(
+    request: Request,
+    api_key: Optional[str] = Security(api_key_header_scheme),
+    authorization: Optional[str] = Header(None),
+    x_signature: Optional[str] = Header(None, alias="X-Signature-SHA256"),
+    x_hub_signature: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
+    x_timestamp: Optional[str] = Header(None, alias="X-Timestamp")
+) -> bool:
+    """
+    Dedicated Authentication for Internal Orchestrator & Webhook Analysis:
+    1. If HMAC headers are present (X-Signature-SHA256 & X-Timestamp):
+       Cryptographically validates HMAC-SHA256 over f'{timestamp}.{body}',
+       enforcing drift limits and atomic replay protection.
+    2. If Scoped Service Credential is present (X-API-Key / Bearer):
+       Validates against FASTAPI_API_KEY (or SPRINTS_API_KEY) with constant-time comparison
+       and distributed rate limiting.
+    3. Fails closed (HTTP 401) if neither valid credential type is provided.
+    """
+    await rate_limiter_dependency(request)
+    sig = x_signature or x_hub_signature or request.headers.get("X-Signature-SHA256") or request.headers.get("X-Hub-Signature-256")
+    ts = x_timestamp or request.headers.get("X-Timestamp")
+    
+    if sig or ts:
+        if not sig:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Webhook Authentication Failed: Missing signature header (X-Signature-SHA256)."
+            )
+        if not ts:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Webhook Authentication Failed: Missing timestamp header (X-Timestamp)."
+            )
+        raw_body = await request.body()
+        verify_hmac_sha256_signature(raw_body, sig, ts)
+        return True
+
+    # Check Scoped Service API Key
+    candidate_key = None
+    if api_key:
+        candidate_key = api_key
+    elif authorization:
+        parts = authorization.split()
+        candidate_key = parts[1] if len(parts) == 2 and parts[0].lower() == "bearer" else parts[0]
+
+    if candidate_key:
+        if FASTAPI_API_KEY and secrets.compare_digest(candidate_key, FASTAPI_API_KEY):
+            return True
+        if secrets.compare_digest(candidate_key, SPRINTS_API_KEY):
+            return True
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Invalid Scoped Service API Key."
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized: Missing authentication. Provide valid 'X-API-Key' or 'X-Signature-SHA256' with 'X-Timestamp'."
+    )
 
 
 def get_db_connection() -> sqlite3.Connection:

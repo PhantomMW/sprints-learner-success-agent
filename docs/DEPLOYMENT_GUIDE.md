@@ -32,12 +32,16 @@ SPRINTS_API_KEY=sk_live_sprints_f4a9b2c8e1d7a3c5b9e0f2d4a6c8e0b2
 WEBHOOK_SECRET=whsec_prod_sprints_9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b
 SESSION_SECRET=sess_prod_sprints_1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
 
+# Redis Password & Distributed Cache URL
+REDIS_PASSWORD=sprints_redis_prod_secure_2026
+REDIS_URL=redis://:sprints_redis_prod_secure_2026@sprints-redis:6379/0
+
 # Microservice Configuration
 MAX_PAYLOAD_SIZE=65536
 ENVIRONMENT=production
 FASTAPI_BASE_URL=http://sprints-ai-api:8000
 FASTAPI_API_KEY=sk_live_sprints_f4a9b2c8e1d7a3c5b9e0f2d4a6c8e0b2
-NODE_FUNCTION_ALLOW_BUILTIN=crypto
+N8N_BLOCK_ENV_ACCESS_IN_NODE=true
 ```
 
 ---
@@ -56,8 +60,10 @@ docker compose ps
 Expected Output:
 ```
 NAME                       IMAGE               COMMAND                  SERVICE          CREATED         STATUS                   PORTS
-sprints_ai_service         sprints-ai-api      "python api/app.py"      sprints-ai-api   1 minute ago    Up 1 minute (healthy)    0.0.0.0:8000->8000/tcp
-sprints_n8n_orchestrator   n8nio/n8n:2.47.2    "tini -- /docker-en..."  sprints-n8n      1 minute ago    Up 1 minute              0.0.0.0:5678->5678/tcp
+sprints_redis_cache        redis:7-alpine      "docker-entrypoint..."   sprints-redis    1 minute ago    Up 1 minute (healthy)    6379/tcp (internal only)
+sprints_ai_service         sprints-ai-api      "python api/app.py"      sprints-ai-api   1 minute ago    Up 1 minute (healthy)    127.0.0.1:8000->8000/tcp
+sprints_n8n_orchestrator   n8nio/n8n:2.47.2    "tini -- /docker-en..."  sprints-n8n      1 minute ago    Up 1 minute              127.0.0.1:5678->5678/tcp
+```
 ```
 
 ### Step 3: Automated Workflow Import & Activation

@@ -68,10 +68,11 @@ To prevent privilege confusion or authentication bypass, the architecture strict
 2. **Dedicated Webhook Routes (`/api/v1/webhook/analyze`, `/api/v1/webhook/learner-query`):**
    - Protected exclusively by `verify_mandatory_webhook_hmac`.
    - **Zero Bypass:** Standard API Keys CANNOT authenticate or bypass webhook verification. Even if a valid `X-API-Key` is supplied, requests lacking HMAC or carrying invalid signatures are rejected immediately.
-3. **n8n Orchestrator Signing:**
-   - In `Parse & Validate Query`, n8n strictly requires `WEBHOOK_SECRET` and Node.js `crypto`. If either is missing, workflow execution halts immediately (zero unauthenticated fallback).
-   - Computes canonical signature over `${timestamp}.${analyzePayload}`.
-   - Dispatches requests to `/api/v1/webhook/analyze` with `X-Signature-SHA256` and `X-Timestamp`.
+3. **n8n Orchestrator Credential Isolation (Least-Privilege Scoping):**
+   - `N8N_BLOCK_ENV_ACCESS_IN_NODE=true` is strictly enforced, blocking Code nodes from arbitrary environment variable access (`$env`).
+   - Internal service-to-service communication uses scoped credential `FASTAPI_API_KEY` injected explicitly into the HTTP Request node headers.
+   - `Parse & Validate Query` runs in an isolated JS sandbox with zero dependencies on global secrets.
+   - External incoming webhooks continue to require strict HMAC-SHA256 signatures with timestamp freshness and atomic replay verification.
 
 ### Webhook Security Verification Matrix (All 6 Scenarios Tested):
 
@@ -100,9 +101,10 @@ To protect the system from packet-capture replay attacks:
 
 ## 5. Dashboard Authentication & Double-Submit CSRF Defense
 
-### Secure Session Handling:
+### Secure Session Handling & Production Fail-Closed State:
 - Login via `POST /api/v1/auth/login` sets an `HttpOnly`, `SameSite=Lax` cookie (`sprints_session`).
 - The login JSON response body returns only metadata (`{"status": "authenticated", "expires_in": 7200}`), **never** reflecting the raw secret token.
+- **Fail-Closed Distributed State:** In `ENVIRONMENT=production`, all session operations (`save_session_state`, `is_session_revoked_or_missing`, `record_session_revocation`) strictly require `REDIS_URL`. If Redis is unavailable or unconfigured, the application fails closed (HTTP 503 or session invalidation) and **never** falls back to in-memory local state, preventing multi-worker split-brain or inconsistent revocation.
 
 ### Double-Submit Cookie Anti-CSRF Pattern:
 - `GET /` and `POST /auth/login` issue a cryptographically random, non-HttpOnly cookie: `sprints_csrf_token`.
@@ -125,7 +127,7 @@ Under OWASP guidelines, endpoints must reject oversized requests before bufferin
 
 ## 7. Verification Test Suite
 
-All security guarantees are continuously validated by `tests/test_security_hardening.py` (18 tests) and `tests/test_security_and_auth.py` (10 tests):
+All security guarantees are continuously validated by `tests/test_security_hardening.py` (24 automated unit tests) and `tests/test_security_and_auth.py` (10 tests):
 - [x] Missing mandatory secrets fails fast with `RuntimeError`
 - [x] Valid API key without HMAC on webhook rejected (`HTTP 401`)
 - [x] Valid API key with forged HMAC on webhook rejected (`HTTP 401`)
@@ -141,5 +143,14 @@ All security guarantees are continuously validated by `tests/test_security_harde
 - [x] Session token absent from JSON login body
 - [x] Revoked session rejected (`HTTP 401`)
 - [x] Rate limit exceeded returns `HTTP 429`
+- [x] Clustered production mode requires Redis for atomic replay defense (`HTTP 503`)
+- [x] Clustered production rate limiter fails closed without Redis (`False`)
+- [x] Production session creation fails closed without Redis (`HTTP 503`)
+- [x] Production session lookup fails closed without Redis (`True` / revoked)
+- [x] Production session revocation fails closed without Redis (`HTTP 503`)
+- [x] Scoped service credentials (`FASTAPI_API_KEY`) accepted on internal orchestrator endpoints
+- [x] Docker ports strictly bound to `127.0.0.1` and Redis unexposed on host ports
+- [x] Redis password authentication (`requirepass`) strictly enforced
+- [x] n8n Code nodes blocked from environment access (`N8N_BLOCK_ENV_ACCESS_IN_NODE=true`)
 
 **Audit Conclusion:** Comprehensive multi-layered defense-in-depth architecture adhering to OWASP API Security guidelines and financial/educational data protection standards.

@@ -25,8 +25,8 @@ DB_PATH = os.path.join(REPO_ROOT, 'database', 'sprints_learners.db')
 WORKFLOW_PATH = os.path.join(REPO_ROOT, 'n8n_workflows', 'learner_success_agent.json')
 COMPOSE_PATH = os.path.join(REPO_ROOT, 'docker-compose.yml')
 
-N8N_BASE_URL = os.environ.get('N8N_BASE_URL', 'http://localhost:5678')
-FASTAPI_BASE_URL = os.environ.get('FASTAPI_BASE_URL', 'http://localhost:8000')
+N8N_BASE_URL = os.environ.get('N8N_BASE_URL', 'http://127.0.0.1:5678')
+FASTAPI_BASE_URL = os.environ.get('FASTAPI_BASE_URL', 'http://127.0.0.1:8000')
 
 def inspect_docker():
     """Safely checks if Docker CLI is installed and daemon is operational."""

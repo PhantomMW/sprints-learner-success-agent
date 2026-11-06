@@ -33,6 +33,7 @@ from app import (
     app,
     load_all_models,
     SPRINTS_API_KEY,
+    FASTAPI_API_KEY,
     WEBHOOK_SECRET,
     create_session_token,
     verify_session_token,
@@ -381,3 +382,54 @@ class TestSecurityHardening:
 
         result = app_module.check_rate_limit("198.51.100.1")
         assert result is False
+
+    def test_production_session_save_fails_closed_without_redis(self, monkeypatch):
+        """In ENVIRONMENT=production, save_session_state must raise HTTP 503 if Redis is absent."""
+        import app as app_module
+        from fastapi import HTTPException
+
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("REDIS_URL", raising=False)
+
+        with pytest.raises(HTTPException) as exc:
+            app_module.save_session_state("jti_test_123", {"sub": "operator"}, 3600)
+        assert exc.value.status_code == 503
+        assert "REDIS_URL" in str(exc.value.detail)
+
+    def test_production_session_lookup_fails_closed_without_redis(self, monkeypatch):
+        """In ENVIRONMENT=production, is_session_revoked_or_missing returns True (fail closed) if Redis is absent."""
+        import app as app_module
+
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("REDIS_URL", raising=False)
+
+        assert app_module.is_session_revoked_or_missing("jti_unknown") is True
+
+    def test_production_session_revocation_fails_closed_without_redis(self, monkeypatch):
+        """In ENVIRONMENT=production, record_session_revocation must raise HTTP 503 if Redis is absent."""
+        import app as app_module
+        from fastapi import HTTPException
+
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("REDIS_URL", raising=False)
+
+        with pytest.raises(HTTPException) as exc:
+            app_module.record_session_revocation("jti_test_123")
+        assert exc.value.status_code == 503
+        assert "REDIS_URL" in str(exc.value.detail)
+
+    def test_internal_orchestrator_accepts_scoped_fastapi_api_key(self, client):
+        """Verify that internal /api/v1/analyze accepts scoped FASTAPI_API_KEY."""
+        headers = {
+            "X-API-Key": FASTAPI_API_KEY,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "learner_id": "LRN-1002",
+            "query_text": "What is SQL join?"
+        }
+        resp = client.post("/api/v1/analyze", headers=headers, json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["learner_id"] == "LRN-1002"
+        assert "routing_decision" in data

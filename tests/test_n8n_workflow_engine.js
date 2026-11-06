@@ -117,9 +117,7 @@ assert(parsedResult1.start_time, 'Missing start_time millisecond timestamp for t
 assert(parsedResult1.correlation_id && parsedResult1.correlation_id.startsWith('corr-'), 'Missing or invalid correlation_id');
 assert(parsedResult1.idempotency_key && parsedResult1.idempotency_key.startsWith('idemp-tx-'), 'Missing or invalid transaction idempotency_key');
 assert(parsedResult1.analyze_payload && parsedResult1.analyze_payload.includes('LRN-1019'), 'Missing or invalid analyze_payload');
-assert(parsedResult1.analyze_timestamp, 'Missing analyze_timestamp');
-assert(parsedResult1.analyze_signature && parsedResult1.analyze_signature.startsWith('sha256='), 'Missing or invalid HMAC-SHA256 signature (must start with sha256=)');
-console.log('   [PASS] Generated collision-free transaction idempotency_key & valid HMAC-SHA256 signature.');
+console.log('   [PASS] Generated collision-free transaction idempotency_key & valid canonical analyze payload.');
 
 // 3B. Subsequent new student question generates distinct key (doesn't block new ticket after resolution)
 const validPayload2 = {
@@ -163,26 +161,24 @@ assert.throws(() => {
 }, /query_text/, 'Must reject blank query_text');
 console.log('   [PASS] Successfully threw Bad Request on blank query_text.');
 
-// 3F. Strict Security: Rejection when WEBHOOK_SECRET is missing (Zero fallback)
-assert.throws(() => {
-  const customSandbox = {
-    $json: { body: { learner_id: 'LRN-1001', query_text: 'Valid query' } },
-    $env: { WEBHOOK_SECRET: null }
-  };
-  runNodeVm(parseCode, customSandbox);
-}, /FATAL SECURITY ERROR: Mandatory environment variable WEBHOOK_SECRET is not configured/, 'Must halt workflow execution when WEBHOOK_SECRET is absent');
-console.log('   [PASS] Successfully threw Fatal Security Error when WEBHOOK_SECRET is missing.');
+// 3F. Strict Least-Privilege Isolation: Code Node must NOT require or access $env
+const isolatedSandbox = {
+  $json: { body: { learner_id: 'LRN-1001', query_text: 'Valid query' } },
+  $env: {}
+};
+const isolatedResult = runNodeVm(parseCode, isolatedSandbox);
+assert.strictEqual(isolatedResult.learner_id, 'LRN-1001');
+console.log('   [PASS] Hardened Least-Privilege Isolation: Code node executes safely without $env dependency.');
 
-// 3G. Strict Security: Rejection when crypto is unavailable (Zero bypass)
-assert.throws(() => {
-  const customSandbox = {
-    $json: { body: { learner_id: 'LRN-1001', query_text: 'Valid query' } },
-    require: () => null,
-    crypto: null
-  };
-  runNodeVm(parseCode, customSandbox);
-}, /FATAL SECURITY ERROR: Node.js crypto module is not available/, 'Must halt workflow execution when crypto is absent');
-console.log('   [PASS] Successfully threw Fatal Security Error when crypto module is unavailable.');
+// 3G. Verify Scoped Credentials in HTTP Request Nodes
+const analysisNodeHeaders = httpAnalysisNode.parameters.headerParameters.parameters;
+const hasAnalysisApiKey = analysisNodeHeaders.some(h => h.name === 'X-API-Key' && h.value.includes('FASTAPI_API_KEY'));
+assert(hasAnalysisApiKey, 'HTTP Analysis node must use scoped FASTAPI_API_KEY');
+
+const dbNodeHeaders = httpDbNode.parameters.headerParameters.parameters;
+const hasDbApiKey = dbNodeHeaders.some(h => h.name === 'X-API-Key' && h.value.includes('FASTAPI_API_KEY'));
+assert(hasDbApiKey, 'HTTP DB Escalation node must use scoped FASTAPI_API_KEY');
+console.log('   [PASS] Scoped service credentials (FASTAPI_API_KEY) verified on HTTP request nodes.');
 
 // 4. Test Deliberative IF Evaluation
 console.log('\n4. Testing IF Branching Logic (Deliberative Decision Router)...');

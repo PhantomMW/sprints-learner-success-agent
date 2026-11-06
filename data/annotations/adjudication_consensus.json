@@ -1,0 +1,38 @@
+[
+  {
+    "case_id": "CASE-HLD-012",
+    "split": "holdout_unseen",
+    "text": "نويت أنسحب خلاص ومفيش داعي أكمل باقي الموديولات",
+    "annotator_1_label": "RAG",
+    "annotator_2_label": "ESCALATE",
+    "consensus_label": "ESCALATE",
+    "adjudicator_id": "ADJ-EG-00",
+    "adjudicator_role": "Academic Director & Curriculum Architect",
+    "adjudication_rationale": "Explicit statement of dropout intention ('نويت أنسحب خلاص') constitutes immediate learner churn risk. Immediate human mentor outreach required.",
+    "adjudicated_at": "2026-10-27T16:30:00Z"
+  },
+  {
+    "case_id": "CASE-HLD-028",
+    "split": "holdout_unseen",
+    "text": "المنصة بطيئة شوية النهاردة بس شغال عادي",
+    "annotator_1_label": "ESCALATE",
+    "annotator_2_label": "RAG",
+    "consensus_label": "RAG",
+    "adjudicator_id": "ADJ-EG-00",
+    "adjudicator_role": "Academic Director & Curriculum Architect",
+    "adjudication_rationale": "Student clarifies system is operational ('شغال عادي'). Low priority platform latency observation, no active learning blocker. Routed to automated RAG.",
+    "adjudicated_at": "2026-10-27T16:30:00Z"
+  },
+  {
+    "case_id": "CASE-REAL-007",
+    "split": "anonymized_real_chat",
+    "text": "يا بشمهندس بالله عليك محتاج سيشن ضروري مع المينتور علشان خلاص فاضل تكه وهسيب التراك",
+    "annotator_1_label": "RAG",
+    "annotator_2_label": "ESCALATE",
+    "consensus_label": "ESCALATE",
+    "adjudicator_id": "ADJ-EG-00",
+    "adjudicator_role": "Academic Director & Curriculum Architect",
+    "adjudication_rationale": "Authentic dialectal distress idiom ('فاضل تكه وهسيب التراك') denotes acute frustration and imminent abandonment. Urgent 1-on-1 human escalation required.",
+    "adjudicated_at": "2026-10-27T16:30:00Z"
+  }
+]

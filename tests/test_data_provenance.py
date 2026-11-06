@@ -25,13 +25,50 @@ from verify_data_provenance import (
 class TestDataProvenance:
 
     def test_inter_annotator_agreement_cohen_kappa(self):
-        """Asserts Cohen's Kappa >= 0.90 across the 100 benchmark queries."""
+        """Asserts Cohen's Kappa >= 0.90 across all subsets (Overall, Real Chat, and Controlled Benchmark)."""
         res = verify_cohen_kappa_iaa()
-        assert res["total_queries"] == 100
-        assert res["initial_agreed_queries"] == 97
-        assert res["adjudicated_queries"] == 3
-        assert res["cohens_kappa"] >= 0.90
-        assert res["observed_agreement_po"] == 0.97
+        assert res["overall"]["n"] == 100
+        assert res["overall"]["agreed"] == 97
+        assert res["overall"]["kappa"] >= 0.90
+        assert res["overall"]["p_o"] == 0.97
+        
+        # Real Chat Sub-matrix
+        assert res["anonymized_real_chat"]["n"] == 30
+        assert res["anonymized_real_chat"]["agreed"] == 29
+        assert res["anonymized_real_chat"]["kappa"] >= 0.90
+        
+        # Controlled Benchmark Sub-matrix
+        assert res["controlled_benchmark"]["n"] == 70
+        assert res["controlled_benchmark"]["agreed"] == 68
+        assert res["controlled_benchmark"]["kappa"] >= 0.90
+        
+        assert res["adjudicated_disagreements"] == 3
+
+    def test_independent_raw_annotation_files_exist_and_unmodified(self):
+        """Validates that distinct, independent raw annotation files exist with reviewer metadata."""
+        import json
+        annotations_dir = os.path.join(REPO_ROOT, "data", "annotations")
+        a1_file = os.path.join(annotations_dir, "annotator_1_raw.json")
+        a2_file = os.path.join(annotations_dir, "annotator_2_raw.json")
+        adj_file = os.path.join(annotations_dir, "adjudication_consensus.json")
+        
+        for f in [a1_file, a2_file, adj_file]:
+            assert os.path.exists(f), f"Expected annotation audit file {f} to exist"
+            
+        with open(a1_file, "r", encoding="utf-8") as f:
+            a1_data = json.load(f)
+        with open(a2_file, "r", encoding="utf-8") as f:
+            a2_data = json.load(f)
+        with open(adj_file, "r", encoding="utf-8") as f:
+            adj_data = json.load(f)
+            
+        assert len(a1_data) == 100
+        assert len(a2_data) == 100
+        assert len(adj_data) == 3
+        
+        assert a1_data[0]["annotator_id"] == "ANN-EG-01"
+        assert a2_data[0]["annotator_id"] == "ANN-EG-02"
+        assert adj_data[0]["adjudicator_id"] == "ADJ-EG-00"
 
     def test_pii_sanitization_zero_leakage(self):
         """Asserts zero emails, phones, or national IDs in learner dataset."""

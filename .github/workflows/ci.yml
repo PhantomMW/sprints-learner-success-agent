@@ -119,10 +119,10 @@ jobs:
           docker exec sprints_n8n_orchestrator n8n publish:workflow --id=sprints-capstone-n8n-workflow
           echo "Restarting n8n container to register webhooks from database into router..."
           docker restart sprints_n8n_orchestrator
-          timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://localhost:5678 | grep -E "200|302|401"; do sleep 3; done'
+          timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5678 | grep -E "200|302|401"; do sleep 3; done'
           sleep 5
           echo "Verifying live webhook readiness and full end-to-end execution (HTTP 200 OK)..."
-          timeout 60 bash -c 'until [ $(curl -s -o /tmp/webhook_probe.json -w "%{http_code}" -X POST http://localhost:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"What is relational SQL?\"}") -eq 200 ]; do echo "Awaiting webhook readiness..."; sleep 3; done'
+          timeout 60 bash -c 'until [ $(curl -s -o /tmp/webhook_probe.json -w "%{http_code}" -X POST http://127.0.0.1:5678/webhook/learner-query -H "Content-Type: application/json" -d "{\"learner_id\":\"LRN-1002\",\"query_text\":\"What is relational SQL?\"}") -eq 200 ]; do echo "Awaiting webhook readiness..."; sleep 3; done'
           docker compose ps
 
       - name: Live n8n Docker Webhook Integration Tests (Dual Branch Routing & SQLite Persistence)
