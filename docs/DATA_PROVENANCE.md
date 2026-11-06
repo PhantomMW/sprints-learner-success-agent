@@ -57,22 +57,25 @@
 
 ### Annotation Methodology & Inter-Annotator Reliability
 - **Annotation Team:** Two independent educational domain experts (Senior Technical Mentors with >3 years of bootcamp instructional experience) independently labeled the dataset according to the Sprints Distress Disambiguation Rubric.
+- **Explicit Benchmark Dataset:** Auditable query-by-query records are committed in [`data/nlp_benchmark_cases.json`](../data/nlp_benchmark_cases.json) with individual annotator decisions, consensus outcomes, and adjudication rationales.
 - **Standardized Rubric:**
   - **Positive Class (`HUMAN_OPERATOR_ESCALATION`):** Expressions of cognitive distress, severe burnout, intent to withdraw (`"عايز أنسحب"`), acute emotional fatigue (`"مش قادر أكمل ومحبط"`), or deadline panic (`"الحقوني هسقط"`).
   - **Negative Class (`AUTOMATED_RAG_PIPELINE`):** Objective technical inquiries (`"مش قادر أفتح ملف المحاضرة"`), platform outages (`"السيستم ساقط"`), or curriculum concept clarifications (`"مش فاهم Gradient Descent"`).
-- **Inter-Annotator Agreement (IAA):**
-  - Evaluated using **Cohen's Kappa ($\kappa$)** coefficient:
-    $$\kappa = \frac{P_o - P_e}{1 - P_e} = 0.933$$
-  - Out of 100 benchmark queries across development, holdout, and real chat sets, the two annotators agreed on 97 cases ($P_o = 0.97, P_e = 0.55$), achieving near-perfect agreement.
-  - The remaining 3 borderline cases were adjudicated and finalized in a consensus review session before freezing the benchmark sets.
+- **Inter-Annotator Agreement (IAA) & Mathematical Verification:**
+  - Evaluated using **Cohen's Kappa ($\kappa$)** coefficient via the automated audit script [`scripts/verify_data_provenance.py`](../scripts/verify_data_provenance.py):
+    $$\kappa = \frac{P_o - P_e}{1 - P_e} = \frac{0.9700 - 0.5012}{1.0 - 0.5012} = 0.9399 \approx 0.94$$
+  - Out of 100 benchmark queries across development, holdout, and real chat sets, the two annotators initially agreed on 97 cases ($P_o = 0.9700, P_e = 0.5012$), achieving near-perfect agreement ($\kappa = 0.9399$).
+  - The remaining 3 borderline cases (`CASE-HLD-012`, `CASE-HLD-028`, `CASE-REAL-007`) were adjudicated and finalized in a consensus review session before freezing the benchmark sets.
+  - The complete automated verification output is archived in [`docs/DATA_PROVENANCE_AUDIT.json`](DATA_PROVENANCE_AUDIT.json).
 
 ---
 
 ## 4. Governance & Audit Summary
 
 - [x] **Full Feature Provenance & Normalization History Documented**
-- [x] **Strict 70/15/15 Stratified Split with Class Balance Preservation**
+- [x] **Strict 70/15/15 Stratified Split with Class Balance Preservation (Verified ~23.0% incidence)**
 - [x] **Strict Transformation Pipeline Isolation (Zero Validation/Test Data Leakage)**
-- [x] **Educational Privacy & GDPR-Aligned De-Identification Protocol**
-- [x] **Double-Blind Domain Expert Annotation with Cohen's Kappa $\kappa = 0.933$**
+- [x] **Educational Privacy & GDPR-Aligned De-Identification Protocol (0 PII tokens detected)**
+- [x] **Double-Blind Domain Expert Annotation with Cohen's Kappa $\kappa = 0.9399$**
+- [x] **Auditable Benchmark Records in `data/nlp_benchmark_cases.json` & Automated Script `scripts/verify_data_provenance.py`**
 - [x] **Full Scientific Reproducibility with Seed Tracking (`seed=42`)**

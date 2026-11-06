@@ -44,6 +44,10 @@ jobs:
         run: |
           python scripts/test_db.py
 
+      - name: Data Provenance, Cohen's Kappa IAA & PII Sanitization Audit
+        run: |
+          python -m pytest -v tests/test_data_provenance.py
+
       - name: Sprint 2 & 3 - Modular Feature Parity Unit Tests
         run: |
           python tests/test_feature_parity.py

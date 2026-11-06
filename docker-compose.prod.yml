@@ -1,0 +1,109 @@
+# ==============================================================================
+# SPRINTS AI-POWERED LEARNER SUCCESS & SUPPORT AGENT
+# Production Multi-Container Orchestration (Zero Direct Host Port Exposure)
+# Architecture: Caddy TLS 1.3 Reverse Proxy -> Private Isolated Docker Network
+# Backend Services: FastAPI (4 Uvicorn Workers), n8n Orchestrator, Redis Cluster Cache
+# ==============================================================================
+
+services:
+  # Edge Reverse Proxy: The ONLY service with public host port bindings
+  sprints-proxy:
+    image: caddy:2.8-alpine
+    container_name: sprints_caddy_ingress
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - sprints-ai-api
+      - sprints-n8n
+    networks:
+      - sprints_prod_net
+
+  # Distributed Redis Cache: Atomic Replay Attack Protection & Rate Limiting
+  sprints-redis:
+    image: redis:7-alpine
+    container_name: sprints_redis_cache
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-sprints_redis_prod_secure_2026}
+    # NO host port exposure: strictly internal to sprints_prod_net
+    volumes:
+      - redis_data:/data
+    networks:
+      - sprints_prod_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-sprints_redis_prod_secure_2026}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Scaled FastAPI Backend (Gunicorn/Uvicorn multi-worker with PyTorch & spaCy)
+  sprints-ai-api:
+    build: .
+    container_name: sprints_ai_service
+    restart: unless-stopped
+    # NO host port exposure: accessible ONLY via Caddy ingress and n8n internal mesh
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./database:/app/database
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENVIRONMENT=production
+      - SPRINTS_API_KEY=${SPRINTS_API_KEY}
+      - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - MAX_PAYLOAD_SIZE=${MAX_PAYLOAD_SIZE:-65536}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-sprints_redis_prod_secure_2026}@sprints-redis:6379/0
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-120}
+      - TRUSTED_PROXIES=sprints-proxy,127.0.0.1,::1
+    depends_on:
+      sprints-redis:
+        condition: service_healthy
+    networks:
+      - sprints_prod_net
+
+  # n8n Deliberative Agent Workflow Orchestrator
+  sprints-n8n:
+    image: n8nio/n8n:2.47.2
+    container_name: sprints_n8n_orchestrator
+    restart: unless-stopped
+    # NO host port exposure: accessible ONLY via Caddy ingress
+    environment:
+      - N8N_HOST=sprints-proxy
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${DOMAIN_NAME:-localhost}/
+      - FASTAPI_BASE_URL=http://sprints-ai-api:8000
+      - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      - GENERIC_TIMEZONE=Africa/Cairo
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n_workflows:/workflows:ro
+      - ./database:/app/database
+    depends_on:
+      - sprints-ai-api
+    networks:
+      - sprints_prod_net
+
+networks:
+  sprints_prod_net:
+    driver: bridge
+    internal: false
+
+volumes:
+  caddy_data:
+  caddy_config:
+  redis_data:
+  n8n_data:

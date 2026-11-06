@@ -162,6 +162,8 @@ if not SPRINTS_API_KEY:
         "Please provide SPRINTS_API_KEY in your local .env file or host environment before starting the service."
     )
 
+FASTAPI_API_KEY = os.environ.get("FASTAPI_API_KEY")
+
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 if not WEBHOOK_SECRET:
     raise RuntimeError(
@@ -174,6 +176,18 @@ if not SESSION_SECRET:
     raise RuntimeError(
         "FATAL SECURITY CONFIGURATION: Mandatory environment variable 'SESSION_SECRET' is not set! "
         "Please provide SESSION_SECRET in your local .env file or host environment before starting the service."
+    )
+
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
+REDIS_URL = os.environ.get("REDIS_URL")
+
+# Mandatory Redis in Production (Multi-Worker Cluster Protection)
+if ENVIRONMENT == "production" and not REDIS_URL:
+    raise RuntimeError(
+        "FATAL SECURITY CONFIGURATION: Clustered multi-worker production deployment "
+        "requires 'REDIS_URL' for distributed atomic replay attack defense and distributed rate limiting. "
+        "Local in-memory stores are strictly prohibited in production to prevent replay race conditions. "
+        "Please configure REDIS_URL (e.g. redis://sprints-redis:6379/0)."
     )
 
 api_key_header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -191,21 +205,47 @@ _session_lock = threading.Lock()
 
 def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool:
     """
-    In-memory sliding window rate limiter per client IP address with Redis clustering support.
-    Prunes timestamps older than 60 seconds and verifies request count < limit.
-    Multi-worker architecture: For clustered multi-worker / multi-node deployments,
-    seamlessly utilizes Redis token-bucket via REDIS_URL.
-    In production (ENVIRONMENT=production), supports RATE_LIMIT_FALLBACK=fail_closed.
+    Sliding window rate limiter per client IP address.
+    In Production (ENVIRONMENT=production):
+        Strictly requires functional Redis distributed token bucket and fails closed if Redis is unavailable.
+    In Development/Testing (ENVIRONMENT != production):
+        Uses Redis if REDIS_URL is configured; otherwise falls back to thread-safe in-memory sliding window.
     """
     if os.environ.get("RATE_LIMIT_DISABLED", "false").lower() == "true":
         return True
     if client_ip == "testclient":
         limit = max(limit, 1000)
+
+    env = os.environ.get("ENVIRONMENT", "development").lower()
     redis_url = os.environ.get("REDIS_URL")
+
+    if env == "production":
+        if not redis_url:
+            logger.error("Production Distributed Rate Limiter Failure: REDIS_URL missing in production.")
+            return False
+        try:
+            import redis
+            r = redis.from_url(redis_url, socket_timeout=2.0)
+            pipe = r.pipeline()
+            now = time.time()
+            cutoff = now - 60.0
+            key = f"ratelimit:{client_ip}"
+            pipe.zremrangebyscore(key, 0, cutoff)
+            pipe.zcard(key)
+            pipe.zadd(key, {str(now): now})
+            pipe.expire(key, 65)
+            _, count, _, _ = pipe.execute()
+            if count >= limit:
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Production Redis rate limiter error (Fail-Closed): {e}")
+            return False
+
     if redis_url:
         try:
             import redis
-            r = redis.from_url(redis_url)
+            r = redis.from_url(redis_url, socket_timeout=2.0)
             pipe = r.pipeline()
             now = time.time()
             cutoff = now - 60.0
@@ -220,9 +260,6 @@ def check_rate_limit(client_ip: str, limit: int = RATE_LIMIT_PER_MINUTE) -> bool
             return True
         except Exception as e:
             logger.warning(f"Redis rate limiter fallback notice: {e}")
-            if os.environ.get("ENVIRONMENT") == "production" and os.environ.get("RATE_LIMIT_FALLBACK") == "fail_closed":
-                logger.error("Production fail_closed active: rejecting traffic due to Redis unavailability.")
-                return False
 
     with _rate_limit_lock:
         now = time.time()
@@ -358,30 +395,47 @@ _seen_webhook_signatures: Dict[str, float] = {}
 def record_and_verify_replay_token(sig: str, timestamp_str: str) -> bool:
     """
     OWASP Replay Attack Defense with Atomic State:
-    If REDIS_URL is configured:
-        Executes atomic Redis SET key 1 NX EX 300.
+    In Production (ENVIRONMENT=production):
+        Strictly requires REDIS_URL and executes atomic Redis SET key 1 NX EX 300.
         Returns False if key already exists (atomic replay prevention across distributed workers).
-    Otherwise:
-        Uses a thread-safe mutex-locked dictionary with a 300s sliding window.
+        Fails closed (HTTP 503) if Redis is unavailable or unconfigured.
+    In Development/Testing (ENVIRONMENT != production):
+        Uses Redis if REDIS_URL is configured; otherwise falls back to a thread-safe mutex-locked dictionary with a 300s sliding window.
     """
+    env = os.environ.get("ENVIRONMENT", "development").lower()
     redis_url = os.environ.get("REDIS_URL")
     cache_key = f"replay:{sig}:{timestamp_str}"
     
+    if env == "production":
+        if not redis_url:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Security Error: Clustered production deployment requires REDIS_URL for atomic replay defense."
+            )
+        try:
+            import redis
+            r = redis.from_url(redis_url, socket_timeout=2.0)
+            was_set = r.set(cache_key, "1", nx=True, ex=300)
+            if not was_set:
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Production Distributed Security Failure: Redis error during replay verification (Fail-Closed): {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Security Coordinator Unavailable: Refusing traffic in production to guarantee atomic replay attack defense."
+            )
+
     if redis_url:
         try:
             import redis
-            r = redis.from_url(redis_url)
+            r = redis.from_url(redis_url, socket_timeout=2.0)
             was_set = r.set(cache_key, "1", nx=True, ex=300)
             if not was_set:
                 return False
             return True
         except Exception as e:
             logger.warning(f"Redis replay check error, falling back to local thread-safe store: {e}")
-            if os.environ.get("ENVIRONMENT") == "production" and os.environ.get("RATE_LIMIT_FALLBACK") == "fail_closed":
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Distributed security coordinator unavailable."
-                )
 
     with _replay_lock:
         now = time.time()
@@ -471,14 +525,17 @@ async def verify_api_key(
     await rate_limiter_dependency(request)
     
     # 1. API Key Header
-    if api_key and secrets.compare_digest(api_key, SPRINTS_API_KEY):
+    if api_key and (
+        secrets.compare_digest(api_key, SPRINTS_API_KEY) or
+        (FASTAPI_API_KEY and secrets.compare_digest(api_key, FASTAPI_API_KEY))
+    ):
         return api_key
 
     # 2. Authorization Header
     if authorization:
         parts = authorization.split()
         candidate = parts[1] if len(parts) == 2 and parts[0].lower() == "bearer" else parts[0]
-        if secrets.compare_digest(candidate, SPRINTS_API_KEY):
+        if secrets.compare_digest(candidate, SPRINTS_API_KEY) or (FASTAPI_API_KEY and secrets.compare_digest(candidate, FASTAPI_API_KEY)):
             return candidate
         session = verify_session_token(candidate)
         if session:

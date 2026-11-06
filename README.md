@@ -15,7 +15,7 @@
 <br/>
 [![Release](https://img.shields.io/badge/Release-v1.5.0-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/PhantomMW/sprints-learner-success-agent/releases/tag/v1.5.0)
 [![CI Pipeline](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/PhantomMW/sprints-learner-success-agent/actions/workflows/ci.yml)
-[![F1-Score](https://img.shields.io/badge/F1_Score-1.0000_(Target_%E2%89%A5_0.82)-success?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
+[![F1-Score](https://img.shields.io/badge/F1_Score-0.9784_(Exp_A_Early_Warning)-success?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
 [![Latency SLA](https://img.shields.io/badge/Latency-154ms_(SLA_%3C_3.5s)-blueviolet?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
 [![Zero False Negatives](https://img.shields.io/badge/False_Negatives-0_(Recall_1.00)-brightgreen?style=for-the-badge)](#-acceptance-criteria-verification-matrix)
 
@@ -40,7 +40,7 @@ As **Sprints** rapidly scales its intensive technology bootcamps across Egypt an
 
 To solve this, Sprints leadership commissioned the development of an **end-to-end automated Learner Success Agent**. This system bridges relational analytics, supervised deep learning, temporal sequence modeling, and an event-driven agentic RAG workflow:
 * **Sprint 1 (Practical Data Analytics):** Normalized 6-table SQLite database (`database/sprints_learners.db`) with analytical queries to extract interaction logs and detect progressive grade degradation ($\ge 15$ pts).
-* **Sprint 2 (Intro to Machine Learning):** PyTorch Supervised Feed-Forward Neural Network (`models/risk_classifier.pth`) classifying learners as **High Risk** vs **Low Risk**, achieving **F1 = 1.000** and **0 False Negatives** (exceeding the $\ge 0.82$ target).
+* **Sprint 2 (Intro to Machine Learning):** PyTorch Supervised Feed-Forward Neural Network (`models/risk_classifier.pth`) serving a dual-tier strategy: **Experiment A (Weeks 1–3 Proactive Early-Warning)** serves as the primary operational system ($F_1 = 0.9784$, Recall $= 0.9855$, ROC-AUC $= 0.9996$, Precision $= 0.9714$), flagging struggling students mid-cohort before dropout. **Experiment B (Weeks 1–5 Retrospective Diagnostic Safety Net)** provides an optimal end-of-course review filter ($F_1 = 1.0000$, Recall $= 1.0000$, 0 False Negatives).
 * **Sprint 3 (Deep Learning):** PyTorch 2-layer LSTM Sequence Model (`models/sequence_predictor.pth`) processing 5-week quiz trajectories $[q_1..q_5]$ to forecast final capstone project outcomes ($R^2 = 0.8229$, RMSE = $7.63$ pts, MAE = $5.59$ pts), leveraging its **forget gate** to discard early-week noise and eliminate vanishing gradients.
 * **Sprint 4 (NLP & Generative AI):** Custom spaCy Named Entity Recognition (NER), TextBlob sentiment analysis, Gensim Word2Vec dense embeddings (`data/processed_embeddings.bin`), empirical FastText subword n-grams benchmark, and dense Semantic Vector Retrieval.
 * **Orchestration (n8n & FastAPI):** Event-driven n8n workflow (`n8n_workflows/learner_success_agent.json`) executing a Deliberative Agent routing policy (escalating distressed queries to human mentors within **14 ms** and answering curriculum queries via Semantic Retrieval in **152 ms**, strictly meeting the $< 3.5$s SLA).
@@ -58,7 +58,7 @@ flowchart TD
     end
 
     subgraph Modeling Layer [2. Predictive PyTorch Core]
-        IMP --> FFNN["PyTorch Risk Classifier (MLP)\n(models/risk_classifier.pth)\nF1 = 1.000 | Recall = 1.000"]
+        IMP --> FFNN["PyTorch Risk Classifier (MLP)\n(models/risk_classifier.pth)\nExp A (W1-W3 Early Warning): F1 = 0.9784 | Recall = 0.9855\nExp B (W1-W5 Retrospective): F1 = 1.0000"]
         IMP --> LSTM["PyTorch Sequence LSTM\n(models/sequence_predictor.pth)\nR² = 0.8229 | Forget Gate Dynamics"]
         FFNN --> PCA_PROJ["Latent Space PCA Projection\n(Behavioral Cluster Validation)"]
     end
@@ -148,8 +148,8 @@ erDiagram
 
 | Evaluation Criterion | Minimum Client Threshold | Outcome Achieved by Sprints Agent | Performance Status |
 | :--- | :--- | :--- | :---: |
-| **Model F1 Score (Exp A: W1-W3 Proactive)** | $\ge 0.82$ on Test Set | **0.9714 (Recall: 0.9855, ROC-AUC: 0.9996)** | 🟢 **PASSED (EARLY RISK INTERVENTION)** |
-| **Model F1 Score (Exp B: W1-W5 Full)** | $\ge 0.82$ on Test Set | **1.0000 (Recall: 1.0000, 0 False Negatives)** | 🟢 **OPTIMAL SAFETY NET** |
+| **Model F1 Score (Exp A: W1-W3 Proactive)** | $\ge 0.82$ on Test Set | **0.9784 (Precision: 0.9714, Recall: 0.9855, ROC-AUC: 0.9996)** | 🟢 **PRIMARY OPERATIONAL SYSTEM (EARLY RISK INTERVENTION)** |
+| **Model F1 Score (Exp B: W1-W5 Full)** | $\ge 0.82$ on Test Set | **1.0000 (Precision: 1.0000, Recall: 1.0000, 0 False Negatives)** | 🟢 **RETROSPECTIVE DIAGNOSTIC SAFETY NET** |
 | **Workflow Latency** | $< 3.5$ seconds (3,500 ms) | **154.5 ms (Max: 296 ms)** | 🟢 **22x FASTER THAN SLA** |
 | **Sequence Modeling (No Target Leakage)** | LSTM on real submissions ($N=1,639$) | **$R^2 = 0.8229$, RMSE = 7.63 pts, MAE = 5.59** | 🟢 **PASSED** |
 | **spaCy NER Benchmark (50 Samples)** | Module & Date Extraction | **Module F1: 0.8125 \| Date F1: 0.9091** | 🟢 **PASSED** |
@@ -301,7 +301,7 @@ sprints_capstone/
 │   ├── setup_and_queries.sql          # Unified SQL setup and verified queries
 │   └── sprints_learners.db            # SQLite relational database (2,000 learners, 9,101 quizzes)
 ├── models/
-│   ├── risk_classifier.pth            # Supervised PyTorch Risk MLP (Exp A F1=0.9714 / Exp B F1=1.000)
+│   ├── risk_classifier.pth            # Supervised PyTorch Risk MLP (Exp A F1=0.9784 / Exp B F1=1.0000)
 │   ├── sequence_predictor.pth         # PyTorch Sequence LSTM (R²=0.8229, RMSE=7.63 pts)
 │   └── word2vec.model                 # Trained Gensim curriculum Word2Vec model
 ├── notebooks/
@@ -413,10 +413,10 @@ A major pitfall of standard RNNs on multi-week academic trajectories is the **ex
 * **Additive Constant Error Carousel ($C_t$):** The update rule $C_t = f_t \odot C_{t-1} + i_t \odot \tilde{C}_t$ provides a linear shortcut for gradient propagation, entirely circumventing vanishing gradients.
 * **Hidden State ($h_t$):** Filtered through $o_t \odot \tanh(C_t)$, the final hidden state $h_5$ encodes an accurate, noise-filtered representation of student velocity used to forecast capstone outcomes ($R^2 = 0.8229$, RMSE = $7.63$ pts).
 
-### 2. Scientific Evaluation: Experiment B ($F_1 = 1.000$) vs Experiment A ($F_1 = 0.9714$)
+### 2. Scientific Evaluation: Experiment A (Primary Early-Warning, $F_1 = 0.9784$) vs Experiment B (Retrospective Safety Net, $F_1 = 1.0000$)
 A rigorous empirical examination of the synthetic cohort dataset explains the performance dynamics between the two experiments:
-* **The Week 5 Dropout Reality (Experiment B):** In the student telemetry dataset, learners who drop out overwhelmingly stop submitting quizzes by the end of the cohort: **74.2% (345 / 465) of dropped students have a missing/null Week 5 quiz**, and their average Week 5 score drops to **$10.0$ pts** (compared to **$86.0$ pts** for retained learners). At Week 5, dropout is an accomplished fact; hence, Experiment B acts as a *retrospective safety net* achieving $F_1 = 1.000$.
-* **True Proactive Early Intervention (Experiment A):** To provide real pedagogical value, intervention must occur *before* students abandon the bootcamp. Experiment A uses **Weeks 1-3 only**, when students are still engaged (Week 1 quiz mean: 54.6 for at-risk vs 83.8 for retained). Achieving **Test $F_1 = 0.9714$** and **Test Recall = $0.9855$ (0.9996 ROC-AUC)** proves that proactive early flagging is highly feasible at Week 3.
+* **True Proactive Early Intervention (Experiment A - Primary Operational System):** To provide real pedagogical value, intervention must occur *before* students abandon the bootcamp. Experiment A uses **Weeks 1–3 only**, when students are still actively engaged (Week 1 quiz mean: 54.6 for at-risk vs 83.8 for retained). Achieving **Test $F_1 = 0.9784$** (Precision: $0.9714$, Recall: $0.9855$, ROC-AUC: $0.9996$) proves that proactive early warning is highly effective at Week 3, allowing mentors to intervene weeks before final failure.
+* **The Week 5 Dropout Reality (Experiment B - Retrospective Diagnostic Safety Net):** In the student telemetry dataset, learners who drop out overwhelmingly stop submitting quizzes by the end of the cohort: **74.2% (345 / 465) of dropped students have a missing/null Week 5 quiz**, and their average Week 5 score drops to **$10.0$ pts** (compared to **$86.0$ pts** for retained learners). At Week 5, dropout is an accomplished fact; hence, Experiment B acts as a *retrospective safety net* achieving $F_1 = 1.0000$ (Recall $= 1.0000$).
 
 ### 3. Latent Space Manifold Separability
 To ensure the supervised risk classifier was not overfitting to spurious tabular artifacts, we extracted the penultimate 16-dimensional activation vectors from the MLP and projected them onto a 2D manifold via PCA. The resulting distribution demonstrates **clear geometric separation** between the High Risk cluster and the Retained Learners cluster, validating that our classification boundaries reflect true underlying behavioral dynamics.

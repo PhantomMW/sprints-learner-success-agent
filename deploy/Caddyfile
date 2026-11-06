@@ -1,0 +1,79 @@
+# ==============================================================================
+# SPRINTS AI-POWERED LEARNER SUCCESS AGENT
+# Production Reverse Proxy Configuration (Caddy 2.x)
+# Automated Zero-Config TLS 1.3, ACME / Let's Encrypt & Reverse Proxy
+# ==============================================================================
+
+{
+    email admin@sprints.ai
+    admin off
+}
+
+# Replace :443 or your-domain.com with your live domain
+:443, :80 {
+    # 1. Enterprise Security Headers (OWASP Recommended)
+    header {
+        # Enforce HTTPS HSTS for 1 year with preloading
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevent MIME-type sniffing
+        X-Content-Type-Options "nosniff"
+        # Prevent clickjacking attacks
+        X-Frame-Options "DENY"
+        # Protect referrer leakage
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Restrict browser capabilities
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        # Hide Caddy Server identity header
+        -Server
+    }
+
+    # 2. Max Request Body Size Enforcement (64 KB ceiling)
+    request_body {
+        max_size 65536
+    }
+
+    # 3. Microservice Upstream Reverse Proxy Routing
+    # Fast-Path API, Healthcheck, OpenAPI docs & Dashboard -> FastAPI Backend
+    handle /api/* {
+        reverse_proxy sprints-ai-api:8000 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /docs* {
+        reverse_proxy sprints-ai-api:8000
+    }
+
+    handle /openapi.json {
+        reverse_proxy sprints-ai-api:8000
+    }
+
+    handle / {
+        reverse_proxy sprints-ai-api:8000
+    }
+
+    # Public Webhook Ingestion -> n8n Orchestrator
+    handle /webhook/* {
+        reverse_proxy sprints-n8n:5678 {
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # Private n8n Admin Interface (Can be restricted via basicauth or IP allowlist)
+    handle /n8n/* {
+        reverse_proxy sprints-n8n:5678
+    }
+
+    # 4. Fallback Catch-all
+    handle {
+        respond "Not Found" 404
+    }
+
+    # Logging
+    log {
+        output stdout
+        format json
+    }
+}

@@ -1,9 +1,24 @@
 services:
+  sprints-redis:
+    image: redis:7-alpine
+    container_name: sprints_redis_cache
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   sprints-ai-api:
     build: .
     container_name: sprints_ai_service
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
       - ./models:/app/models
@@ -11,25 +26,29 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - SPRINTS_API_KEY=${SPRINTS_API_KEY}
+      - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
       - MAX_PAYLOAD_SIZE=${MAX_PAYLOAD_SIZE:-65536}
-      - REDIS_URL=${REDIS_URL:-}
+      - REDIS_URL=${REDIS_URL:-redis://sprints-redis:6379/0}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+    depends_on:
+      sprints-redis:
+        condition: service_healthy
     restart: unless-stopped
 
   sprints-n8n:
     image: n8nio/n8n:2.47.2
     container_name: sprints_n8n_orchestrator
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_HOST=localhost
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - WEBHOOK_URL=http://localhost:5678/
       - FASTAPI_BASE_URL=http://sprints-ai-api:8000
-      - FASTAPI_API_KEY=${FASTAPI_API_KEY:-${SPRINTS_API_KEY}}
+      - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - NODE_FUNCTION_ALLOW_BUILTIN=crypto
@@ -47,3 +66,4 @@ services:
 
 volumes:
   n8n_data:
+  redis_data:

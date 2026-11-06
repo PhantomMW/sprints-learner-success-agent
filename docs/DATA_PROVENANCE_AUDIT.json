@@ -1,0 +1,31 @@
+{
+  "audit_timestamp": "2026-11-06T18:45:00+02:00",
+  "inter_annotator_agreement": {
+    "total_queries": 100,
+    "initial_agreed_queries": 97,
+    "adjudicated_queries": 3,
+    "observed_agreement_po": 0.97,
+    "chance_agreement_pe": 0.5012,
+    "cohens_kappa": 0.9399,
+    "status": "PASSED (Near-Perfect Agreement \u03ba >= 0.90)"
+  },
+  "pii_sanitization_audit": {
+    "total_records_audited": 2000,
+    "synthetic_surrogate_ids_verified": true,
+    "pii_emails_detected": 0,
+    "pii_phones_detected": 0,
+    "pii_national_ids_detected": 0,
+    "pii_credit_cards_detected": 0,
+    "compliance": "GDPR-Aligned De-Identification Verified"
+  },
+  "stratified_split_audit": {
+    "train_samples": 1400,
+    "val_samples": 300,
+    "test_samples": 300,
+    "train_dropout_rate": 0.2329,
+    "val_dropout_rate": 0.2333,
+    "test_dropout_rate": 0.23,
+    "stratification_verified": true
+  },
+  "overall_status": "AUDIT_PASSED_10_OUT_OF_10"
+}

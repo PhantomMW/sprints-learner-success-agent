@@ -93,7 +93,8 @@ To protect the system from packet-capture replay attacks:
 2. **Distributed Atomic Nonce Dedup:**
    - In production with Redis: `SET replay:<sig>:<timestamp> 1 NX EX 300`.
    - If key exists, `SET NX` returns `None` $\rightarrow$ Request rejected with `HTTP 401 Unauthorized: Replay attack detected`.
-   - In local / single-worker mode: Protected by a thread-safe sliding window with `threading.Lock()`.
+   - In clustered production (`ENVIRONMENT=production`): Redis is **strictly mandatory**; requests fail-closed (`HTTP 503 Service Unavailable`) if `REDIS_URL` is absent or unreachable to eliminate cross-worker race conditions.
+   - In local development / testing (`ENVIRONMENT!=production`): Protected by a thread-safe sliding window with `threading.Lock()`.
 
 ---
 

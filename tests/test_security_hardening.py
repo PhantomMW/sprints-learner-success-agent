@@ -354,3 +354,30 @@ class TestSecurityHardening:
         # Restore both to maintain test suite isolation
         monkeypatch.undo()
         importlib.reload(app_module)
+
+    # ==========================================================================
+    # 8. PRODUCTION CLUSTERED REDIS FAIL-CLOSED ENFORCEMENT
+    # ==========================================================================
+
+    def test_production_mode_requires_redis_for_replay_defense(self, monkeypatch):
+        """In ENVIRONMENT=production, replay verification must fail-closed (HTTP 503) if REDIS_URL is absent."""
+        import app as app_module
+        from fastapi import HTTPException
+
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("REDIS_URL", raising=False)
+
+        with pytest.raises(HTTPException) as exc_info:
+            app_module.record_and_verify_replay_token("test_sig_abc123", "1700000000")
+        assert exc_info.value.status_code == 503
+        assert "REDIS_URL" in str(exc_info.value.detail)
+
+    def test_production_mode_rate_limiter_fails_closed_without_redis(self, monkeypatch):
+        """In ENVIRONMENT=production, rate limiter returns False (fails-closed) if REDIS_URL is absent."""
+        import app as app_module
+
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("REDIS_URL", raising=False)
+
+        result = app_module.check_rate_limit("198.51.100.1")
+        assert result is False
