@@ -1,7 +1,7 @@
 # Sprints AI-Powered Learner Success & Support Agent
 ## Phase 2: Machine Learning & Deep Learning Scientific Validation Report
 
-**Evaluation Score:** 10/10 — Enterprise Scientific Standard  
+**Technical Evaluation Standard:** Rigorous 70/15/15 Stratified Split, Competitive Baselines & Empirical Calibration  
 **Lead Evaluators:** Sprints AI Engineering & Data Science Review Board  
 **Date of Evaluation:** November 2026  
 **Artifact Dependencies:** `docs/roc_auc_curve.png`, `docs/pr_auc_curve.png`, `docs/calibration_curve.png`, `docs/lstm_baseline_comparison.png`, `docs/model_benchmark_comparison.json`
@@ -11,7 +11,7 @@
 ## 1. Executive Summary & Experimental Methodology
 
 This report details the rigorous scientific evaluation, baseline benchmarking, and data leakage audit performed on the deep learning models deployed in the Sprints Learner Success Agent:
-1. **PyTorch Deep Multi-Layer Perceptron (MLP):** Predicts student dropout risk across both the complete 5-week trajectory (Experiment B) and early proactive weeks 1–3 (Experiment A).
+1. **PyTorch Deep Multi-Layer Perceptron (MLP):** Primary proactive early-warning risk detector evaluated at Week 3 (Experiment A), alongside a retrospective full-trajectory benchmark across all 5 weeks (Experiment B).
 2. **PyTorch Deep Recurrent LSTM:** Forecasts longitudinal Capstone Exam grade degradation and sequential trajectory progression across weeks 1–5.
 
 ### Strict Data Separation & Provenance Protocol
@@ -28,7 +28,30 @@ The PyTorch MLP was benchmarked against standard industry baselines:
 - **Baseline 2:** Balanced Random Forest Classifier (100 estimators)
 - **Baseline 3:** Majority Class (Zero-R / Dummy Classifier)
 
-### Experiment B: Full Trajectory Benchmark (Weeks 1–5 Test Set, N=300)
+### Experiment A: Primary Early Proactive Attrition Warning (Weeks 1–3 Test Set, N=300)
+
+> [!IMPORTANT]
+> **Primary Operational Result:** Experiment A serves as the **operational core** of the Sprints Early Intervention System. It evaluates whether the system can reliably flag students heading toward failure **at Week 3 (two full weeks before potential course dropout)** using only historical and mid-course metrics (quizzes 1–3, mid-term forum activity, LMS logins).
+
+| Model / Architecture | Accuracy | Precision | Recall (Sensitivity) | F1-Score | ROC-AUC | PR-AUC | Brier Loss |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Sprints Early PyTorch MLP** | **0.9933** | **0.9714** | **0.9855** | **0.9784** | **0.9996** | **0.9984** | **0.0031** |
+| Balanced Random Forest | 0.9967 | 0.9855 | 0.9855 | 0.9855 | 0.9997 | 0.9990 | 0.0038 |
+| Balanced Logistic Regression | 0.9933 | 0.9714 | 0.9855 | 0.9784 | 0.9993 | 0.9972 | 0.0042 |
+| Majority Class (Dummy Baseline) | 0.7700 | 0.0000 | 0.0000 | 0.0000 | 0.5000 | 0.2300 | 0.2300 |
+
+- **High-Stakes Sensitivity:** Captures **98.55% of at-risk students** during Week 3, triggering targeted human mentor academic intervention well before irreversible disengagement.
+- **Empirical Calibration:** Achieves low Brier Calibration Loss ($0.0031$), confirming that risk probabilities accurately reflect true attrition likelihoods rather than uncalibrated overconfidence.
+
+---
+
+### Experiment B: Full-Trajectory Retrospective Evaluation (Weeks 1–5 Test Set, N=300)
+
+> [!NOTE]
+> **Methodological Clarification regarding Full-Trajectory Metrics:**  
+> Experiment B assesses end-of-course retrospective classification using all 5 weeks of academic telemetry (quizzes 1–5, total platform submissions, final project checkpoints).  
+> **Why near-perfect separation ($F_1 = 1.0000$) occurs:** In Weeks 4 and 5, disengaged students exhibit zero quiz submissions, absent attendance, and sharp dropoffs across all LMS activity features. This creates an empirically near-separable boundary between completed and non-completed learners.  
+> **Operational Rule:** **Experiment B is strictly a retrospective diagnostic benchmark**, not an early-warning predictor. Operational decisions in production rely exclusively on **Experiment A** models.
 
 | Model / Architecture | Accuracy | Precision | Recall | F1-Score | ROC-AUC | PR-AUC | Brier Calibration Loss |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -36,21 +59,6 @@ The PyTorch MLP was benchmarked against standard industry baselines:
 | Logistic Regression (Balanced) | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0006 |
 | Random Forest (Balanced) | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0018 |
 | Majority Class (Dummy) | 0.7700 | 0.0000 | 0.0000 | 0.0000 | 0.5000 | 0.2300 | 0.2300 |
-
-> **Calibration Superiority:** While linear and tree ensembles also distinguish separated trajectories, the Sprints Deep MLP achieved the lowest Brier Calibration Loss ($0.0004$), guaranteeing that predicted risk probabilities represent true statistical frequencies without probability overconfidence.
-
-### Experiment A: Early Proactive Attrition Risk (Weeks 1–3 Test Set, N=300)
-
-Evaluates whether the system detects students heading toward failure **2 weeks before** attrition occurs:
-
-| Model / Architecture | Accuracy | Precision | Recall (Sensitivity) | F1-Score | ROC-AUC |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **Sprints Early PyTorch MLP** | **0.9933** | **0.9714** | **0.9855** | **0.9784** | **0.9996** |
-| Random Forest (Balanced) | 0.9967 | 0.9855 | 0.9855 | 0.9855 | 0.9997 |
-| Logistic Regression (Balanced) | 0.9933 | 0.9714 | 0.9855 | 0.9784 | 0.9993 |
-| Majority Class (Dummy) | 0.7700 | 0.0000 | 0.0000 | 0.0000 | 0.5000 |
-
-- **High-Stakes Sensitivity:** Captures **98.55%** of dropout students using early indicators, triggering timely human mentor academic advising.
 
 ---
 

@@ -183,7 +183,7 @@ def evaluate_semantic_rag_quality(w2v_model):
         "oov_fallback_title": oov_retrievals[0]["title"]
     }
 
-def generate_nlp_visualizations(holdout_metrics, rag_metrics):
+def generate_nlp_visualizations(dev_metrics, holdout_metrics, real_metrics, rag_metrics):
     os.makedirs(DOCS_DIR, exist_ok=True)
     
     # 1. Confusion Matrix Figure
@@ -234,8 +234,8 @@ def generate_nlp_visualizations(holdout_metrics, rag_metrics):
     ax1.grid(axis='y', linestyle='--', alpha=0.4)
     
     # Subplot 2: Multi-Split Precision / Recall / F1 Comparison
-    splits = ['Dev Set (N=26)', 'Holdout Set (N=44)', 'Real Chat (N=30)']
-    f1s = [100.0, holdout_metrics["f1"] * 100, 100.0]
+    splits = [f'Dev Set (N={dev_metrics["total"]})', f'Holdout Set (N={holdout_metrics["total"]})', f'Real Chat (N={real_metrics["total"]})']
+    f1s = [dev_metrics["f1"] * 100, holdout_metrics["f1"] * 100, real_metrics["f1"] * 100]
     bars2 = ax2.bar(splits, f1s, color=['#6366f1', '#0ea5e9', '#059669'], width=0.55, edgecolor='black', alpha=0.85)
     ax2.set_ylim(0, 115)
     ax2.set_ylabel('F1-Score (%)', fontsize=10, fontweight='bold')
@@ -282,8 +282,8 @@ def main():
     print(f"  * Mean Cosine Similarity: {rag_metrics['mean_similarity']:.4f}")
     print(f"  * OOV Domain Fallback Rejection: {'SUCCESS (Zero Hallucination)' if rag_metrics['oov_rejection_success'] else 'FAILED'}")
     
-    # 3. Generate Visualizations
-    generate_nlp_visualizations(holdout_metrics, rag_metrics)
+    # 3. Generate Visualizations with actual computed metrics across all three splits
+    generate_nlp_visualizations(dev_metrics, holdout_metrics, real_metrics, rag_metrics)
     
     # 4. Save JSON Benchmark File
     benchmark_record = {

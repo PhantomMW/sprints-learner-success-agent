@@ -74,20 +74,24 @@ const parseNode = nodeMap.get('Parse & Validate Query');
 const parseCode = parseNode.parameters.jsCode;
 
 function runNodeVm(code, contextVars) {
-  const crypto = require('crypto');
+  const defaultCrypto = require('crypto');
+  const envObj = Object.assign(
+    {
+      WEBHOOK_SECRET: 'whsec_ci_test_sprints_e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3',
+      FASTAPI_API_KEY: 'sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a'
+    },
+    contextVars ? contextVars.$env : {}
+  );
   const sandbox = {
-    ...contextVars,
     Date: Date,
     Math: Math,
     Error: Error,
     Boolean: Boolean,
     console: console,
-    require: require,
-    crypto: crypto,
-    $env: {
-      WEBHOOK_SECRET: 'whsec_ci_test_sprints_e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3',
-      FASTAPI_API_KEY: 'sk_ci_test_sprints_4e8a2b1c6d9f3e5a7b0c2d4e6f8a'
-    }
+    require: (contextVars && 'require' in contextVars) ? contextVars.require : require,
+    crypto: (contextVars && 'crypto' in contextVars) ? contextVars.crypto : defaultCrypto,
+    ...contextVars,
+    $env: envObj
   };
   const script = new vm.Script(`(function() { ${code} })()`);
   const ctx = vm.createContext(sandbox);
@@ -158,6 +162,27 @@ assert.throws(() => {
   runNodeVm(parseCode, { $json: { body: { learner_id: 'LRN-1001', query_text: '    ' } } });
 }, /query_text/, 'Must reject blank query_text');
 console.log('   [PASS] Successfully threw Bad Request on blank query_text.');
+
+// 3F. Strict Security: Rejection when WEBHOOK_SECRET is missing (Zero fallback)
+assert.throws(() => {
+  const customSandbox = {
+    $json: { body: { learner_id: 'LRN-1001', query_text: 'Valid query' } },
+    $env: { WEBHOOK_SECRET: null }
+  };
+  runNodeVm(parseCode, customSandbox);
+}, /FATAL SECURITY ERROR: Mandatory environment variable WEBHOOK_SECRET is not configured/, 'Must halt workflow execution when WEBHOOK_SECRET is absent');
+console.log('   [PASS] Successfully threw Fatal Security Error when WEBHOOK_SECRET is missing.');
+
+// 3G. Strict Security: Rejection when crypto is unavailable (Zero bypass)
+assert.throws(() => {
+  const customSandbox = {
+    $json: { body: { learner_id: 'LRN-1001', query_text: 'Valid query' } },
+    require: () => null,
+    crypto: null
+  };
+  runNodeVm(parseCode, customSandbox);
+}, /FATAL SECURITY ERROR: Node.js crypto module is not available/, 'Must halt workflow execution when crypto is absent');
+console.log('   [PASS] Successfully threw Fatal Security Error when crypto module is unavailable.');
 
 // 4. Test Deliberative IF Evaluation
 console.log('\n4. Testing IF Branching Logic (Deliberative Decision Router)...');

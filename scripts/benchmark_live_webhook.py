@@ -7,6 +7,9 @@ Description: Empirical End-to-End Network & Concurrency Benchmark Suite.
              - Evaluates throughput (req/sec)
              - Measures Round-Trip Time (RTT): Min, Median (p50), p95, p99, Max
              - Validates strict compliance with the sub-3,500ms SLA budget
+             - Validates semantic routing decisions (Automated RAG vs Escalation)
+             - Separately records and reports HTTP errors vs Routing errors
+             - Explicitly differentiates n8n Webhook vs FastAPI Direct execution
 ==============================================================================
 """
 
@@ -43,20 +46,53 @@ TEST_QUERIES = [
 ]
 
 def send_request(idx: int, target_url: str, headers: dict) -> dict:
-    payload = TEST_QUERIES[idx % len(TEST_QUERIES)].copy()
-    payload["correlation_id"] = f"net-bench-{int(time.time()*1000)}-{idx}"
-    payload["idempotency_key"] = f"idemp-net-bench-{idx}-{time.time()}"
+    query_item = TEST_QUERIES[idx % len(TEST_QUERIES)]
+    expected_decision = query_item["expected"]
+    payload = {
+        "learner_id": query_item["learner_id"],
+        "query_text": query_item["query_text"],
+        "correlation_id": f"net-bench-{int(time.time()*1000)}-{idx}",
+        "idempotency_key": f"idemp-net-bench-{idx}-{time.time()}"
+    }
 
     t0 = time.time()
     try:
         resp = requests.post(target_url, json=payload, headers=headers, timeout=5.0)
         lat = (time.time() - t0) * 1000.0
+        http_ok = (resp.status_code == 200)
+        routing_ok = False
+        actual_decision = None
+        routing_error_msg = None
+
+        if http_ok:
+            try:
+                data = resp.json()
+                if "routing_decision" in data:
+                    actual_decision = data["routing_decision"]
+                elif data.get("status") == "escalated":
+                    actual_decision = "HUMAN_OPERATOR_ESCALATION"
+                elif data.get("status") == "resolved_auto":
+                    actual_decision = "AUTOMATED_RAG_PIPELINE"
+                else:
+                    actual_decision = data.get("status", "UNKNOWN")
+
+                if actual_decision == expected_decision:
+                    routing_ok = True
+                else:
+                    routing_error_msg = f"Routing Mismatch: Expected {expected_decision}, but received {actual_decision}"
+            except Exception as parse_err:
+                routing_error_msg = f"JSON Parse Error: {parse_err}"
+
         return {
             "index": idx,
             "status_code": resp.status_code,
             "latency_ms": lat,
-            "success": (resp.status_code == 200),
-            "error": None if resp.status_code == 200 else resp.text
+            "http_success": http_ok,
+            "routing_success": routing_ok,
+            "e2e_success": (http_ok and routing_ok),
+            "expected_decision": expected_decision,
+            "actual_decision": actual_decision,
+            "error": None if (http_ok and routing_ok) else (resp.text if not http_ok else routing_error_msg)
         }
     except Exception as e:
         lat = (time.time() - t0) * 1000.0
@@ -64,14 +100,18 @@ def send_request(idx: int, target_url: str, headers: dict) -> dict:
             "index": idx,
             "status_code": 0,
             "latency_ms": lat,
-            "success": False,
+            "http_success": False,
+            "routing_success": False,
+            "e2e_success": False,
+            "expected_decision": expected_decision,
+            "actual_decision": None,
             "error": str(e)
         }
 
 def run_network_benchmark(total_requests: int = 100, concurrency: int = 10, target_override: str = None):
-    print("=" * 70)
-    print("SPRINTS E2E NETWORK CONCURRENCY & SLA LATENCY BENCHMARK")
-    print("=" * 70)
+    print("=" * 75)
+    print("SPRINTS E2E NETWORK CONCURRENCY, ROUTING & SLA LATENCY BENCHMARK")
+    print("=" * 75)
 
     # 1. Determine active endpoint
     webhook_target = f"{N8N_URL}/webhook/learner-query"
@@ -86,33 +126,42 @@ def run_network_benchmark(total_requests: int = 100, concurrency: int = 10, targ
 
     if target_override == "fastapi":
         target_url = api_target
-        target_name = "FastAPI Backend Network Socket (/api/v1/analyze)"
+        target_tier = "FastAPI Direct Endpoint"
+        target_name = "FastAPI Backend Direct Socket (/api/v1/analyze)"
     elif target_override == "n8n":
         target_url = webhook_target
-        target_name = "n8n Webhook (/webhook/learner-query)"
+        target_tier = "n8n Webhook Engine"
+        target_name = "n8n Multi-Container Orchestrator (/webhook/learner-query)"
     else:
-        target_url = webhook_target if n8n_live else api_target
-        target_name = "n8n Webhook (/webhook/learner-query)" if n8n_live else "FastAPI Backend Network Socket (/api/v1/analyze)"
+        if n8n_live:
+            target_url = webhook_target
+            target_tier = "n8n Webhook Engine"
+            target_name = "n8n Multi-Container Orchestrator (/webhook/learner-query)"
+        else:
+            target_url = api_target
+            target_tier = "FastAPI Direct Endpoint"
+            target_name = "FastAPI Backend Direct Socket (/api/v1/analyze)"
+
     headers = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 
+    print(f"Target Tier:      {target_tier}")
     print(f"Target Endpoint:  {target_name}")
     print(f"Target URL:       {target_url}")
     print(f"Total Requests:   {total_requests}")
     print(f"Worker Threads:   {concurrency}")
     print(f"Target SLA:       < 3,500.0 ms")
-    print("-" * 70)
+    print("-" * 75)
 
     t_start = time.time()
     latencies = []
-    successes = 0
+    results = []
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         futures = [executor.submit(send_request, i, target_url, headers) for i in range(total_requests)]
         for f in as_completed(futures):
             res = f.result()
+            results.append(res)
             latencies.append(res["latency_ms"])
-            if res["success"]:
-                successes += 1
 
     total_time = time.time() - t_start
     throughput = len(latencies) / total_time if total_time > 0 else 0
@@ -125,7 +174,18 @@ def run_network_benchmark(total_requests: int = 100, concurrency: int = 10, targ
     max_lat = sorted_lats[-1]
     sla_breaches = sum(1 for l in latencies if l >= 3500.0)
 
-    print(f"Completed:        {successes}/{total_requests} requests successful ({successes/total_requests*100:.1f}%)")
+    http_successes = sum(1 for r in results if r["http_success"])
+    http_errors = total_requests - http_successes
+    routing_successes = sum(1 for r in results if r["routing_success"])
+    routing_errors = sum(1 for r in results if r["http_success"] and not r["routing_success"])
+    e2e_successes = sum(1 for r in results if r["e2e_success"])
+
+    print(f"Target Service:   {target_tier}")
+    print(f"HTTP 200 Success: {http_successes}/{total_requests} ({http_successes/total_requests*100:.1f}%)")
+    print(f"HTTP Errors:      {http_errors}")
+    print(f"Routing Correct:  {routing_successes}/{total_requests} ({routing_successes/total_requests*100:.1f}%)")
+    print(f"Routing Errors:   {routing_errors}")
+    print(f"True E2E Success: {e2e_successes}/{total_requests} ({e2e_successes/total_requests*100:.1f}%)")
     print(f"Total Wall Time:  {total_time:.2f} seconds")
     print(f"Throughput:       {throughput:.2f} requests/sec")
     print(f"Min Latency:      {min_lat:.2f} ms")
@@ -134,15 +194,24 @@ def run_network_benchmark(total_requests: int = 100, concurrency: int = 10, targ
     print(f"p99 Latency:      {p99:.2f} ms")
     print(f"Max Latency:      {max_lat:.2f} ms")
     print(f"SLA Compliance:   {((len(latencies) - sla_breaches) / len(latencies) * 100):.1f}% (< 3500ms)")
-    print("=" * 70)
+    print("=" * 75)
 
+    assert http_errors == 0, f"HTTP errors occurred: {http_errors} requests failed!"
+    assert routing_errors == 0, f"Routing errors occurred: {routing_errors} decisions mismatched expected ground truth!"
+    assert e2e_successes == total_requests, f"Only {e2e_successes}/{total_requests} succeeded end-to-end!"
     assert sla_breaches == 0, f"SLA breached on {sla_breaches} requests!"
-    assert successes == total_requests, f"Only {successes}/{total_requests} succeeded!"
 
     return {
-        "target": target_name,
+        "target_tier": target_tier,
+        "target_endpoint": target_name,
+        "target_url": target_url,
         "total_requests": total_requests,
         "concurrency": concurrency,
+        "http_successes": http_successes,
+        "http_errors": http_errors,
+        "routing_successes": routing_successes,
+        "routing_errors": routing_errors,
+        "e2e_successes": e2e_successes,
         "throughput_req_sec": round(throughput, 2),
         "min_latency_ms": round(min_lat, 2),
         "p50_latency_ms": round(p50, 2),

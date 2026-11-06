@@ -1,10 +1,10 @@
 # Sprints AI-Powered Learner Success & Support Agent
-## Phase 1: Enterprise Security Architecture & Vulnerability Audit Report
+## Phase 1: Security Architecture, Threat Modeling & Defense-in-Depth Audit Report
 
-**Evaluation Score:** 10/10 — Enterprise Security Standard  
+**Security Framework:** OWASP API Security Top 10 (2023) Alignment, NIST SP 800-63B, CWE-352 (CSRF), CWE-79 (XSS)  
 **Lead Security Auditor:** Sprints Cyber & Infrastructure Architecture  
 **Audit Date:** November 2026  
-**Reference Standards:** OWASP API Security Top 10 (2023), NIST SP 800-63B, CWE-352 (CSRF), CWE-79 (XSS)
+**Implementation Modules:** `api/app.py`, `n8n_workflows/learner_success_agent.json`, `tests/test_security_hardening.py`
 
 ---
 
@@ -17,7 +17,7 @@ During the comprehensive security overhaul of the Sprints Learner Success Agent,
 | **Secrets Management** | Insecure deterministic fallback derivation from API Key | Strict fail-fast on startup: missing `WEBHOOK_SECRET` or `SESSION_SECRET` raises fatal `RuntimeError` | Verified |
 | **Dashboard Authentication** | Plaintext API Key leaked into HTML DOM input & sessionStorage | HttpOnly, SameSite=Lax session cookies; zero secret/token reflection in JSON or HTML | Verified |
 | **CSRF Defense** | No CSRF verification on browser state mutations | Double-Submit Cookie pattern with constant-time verification & Origin/Referer matching | Verified |
-| **Webhook Integrity** | Unauthenticated HTTP POST payloads | Native HMAC-SHA256 signature verification over canonical payload and timestamp | Verified |
+| **Webhook Authenticity** | HMAC could be bypassed by sending standard API Key | Strict separation of concerns: `verify_mandatory_webhook_hmac` enforces HMAC; API Key alone rejected | Verified |
 | **Replay Attack Defense** | Repeat requests executed blindly | Distributed atomic Redis `SET NX EX` & thread-safe 300-second timestamp sliding window | Verified |
 | **Buffer / DoS Defense** | Unbounded payload memory allocation | OWASP Request Entity Size limit: rejects requests $> 64\text{ KB}$ with HTTP 413 | Verified |
 | **Rate Limiting** | Open unthrottled endpoints | Sliding-window limiter (120 req/min) with multi-worker Redis backend support | Verified |
@@ -58,26 +58,31 @@ All secrets are explicitly injected via environment variables across `sprints-ai
 
 ---
 
-## 3. Webhook Integrity & Native n8n HMAC-SHA256 Signing
+## 3. Strict Separation of Webhook HMAC from Standard API Authentication
 
-To prevent unauthorized tampering, spoofing, or rogue payload injection into the deliberative routing engine:
-1. **n8n Webhook Signing:** The n8n Code Node utilizes Node.js built-in `crypto.createHmac('sha256', secret)` to compute an HMAC over `${timestamp}.${canonicalPayload}`.
-2. **HTTP Transmission:** Sent via `X-Timestamp` and `X-Signature-SHA256` headers.
-3. **Constant-Time Verification:** The FastAPI backend verifies the signature using `hmac.compare_digest`, preventing side-channel timing attacks.
+To prevent privilege confusion or authentication bypass, the architecture strictly segregates public/dashboard API authentication from internal webhook orchestration:
 
-```
-+-------------------+           +-----------------------+           +----------------------+
-| n8n Code Node     |  Payload  | Canonical JSON String |   HMAC    | Headers:             |
-| Compute HMAC      | --------> | + Timestamp Epoch Sec | --------> | X-Timestamp: 1730... |
-| SHA-256 Signature |           | '1730822400.{"..."}'  |           | X-Signature-SHA256   |
-+-------------------+           +-----------------------+           +----------------------+
-                                                                               |
-                                                                               v
-+-------------------+           +-----------------------+           +----------------------+
-| FastAPI Backend   |  Verify   | Constant-Time Match   |  Result   | Process Query or     |
-| verify_api_key    | --------> | hmac.compare_digest   | --------> | Reject with HTTP 401 |
-+-------------------+           +-----------------------+           +----------------------+
-```
+1. **Standard API Endpoints (`/api/v1/analyze`, `/api/v1/predict_*`, `/api/v1/tickets/*`):**
+   - Authenticated via `verify_api_key`.
+   - Accepts `X-API-Key`, `Authorization: Bearer`, or authenticated Dashboard session cookies (with CSRF verification).
+2. **Dedicated Webhook Routes (`/api/v1/webhook/analyze`, `/api/v1/webhook/learner-query`):**
+   - Protected exclusively by `verify_mandatory_webhook_hmac`.
+   - **Zero Bypass:** Standard API Keys CANNOT authenticate or bypass webhook verification. Even if a valid `X-API-Key` is supplied, requests lacking HMAC or carrying invalid signatures are rejected immediately.
+3. **n8n Orchestrator Signing:**
+   - In `Parse & Validate Query`, n8n strictly requires `WEBHOOK_SECRET` and Node.js `crypto`. If either is missing, workflow execution halts immediately (zero unauthenticated fallback).
+   - Computes canonical signature over `${timestamp}.${analyzePayload}`.
+   - Dispatches requests to `/api/v1/webhook/analyze` with `X-Signature-SHA256` and `X-Timestamp`.
+
+### Webhook Security Verification Matrix (All 6 Scenarios Tested):
+
+| Test Scenario | Client Headers & Payload | Expected Result | Enforced Security Rule |
+| :--- | :--- | :---: | :--- |
+| **1. Valid API Key without HMAC** | `X-API-Key: valid`, No HMAC headers | **401 Unauthorized** | API Key alone cannot bypass webhook HMAC verification. |
+| **2. Valid API Key with Invalid HMAC** | `X-API-Key: valid`, `X-Signature-SHA256: bad` | **401 Unauthorized** | Valid API Key cannot mask an invalid or forged signature. |
+| **3. Valid HMAC and Matching Body** | Authentic HMAC computed over body | **200 OK** | Legitimate cryptographic origin confirmed. |
+| **4. Body Modified After Signing** | Authentic HMAC computed on body A, body B sent | **401 Unauthorized** | In-flight payload tampering detected and blocked. |
+| **5. Expired Timestamp (>300s)** | Authentic HMAC with timestamp 450s in past | **401 Unauthorized** | Clock drift tolerance exceeded ($\pm 300\text{s}$). |
+| **6. Replay of Previously Accepted Request** | Identical signature and timestamp resent | **401 Unauthorized** | Replay attack detected via atomic cache. |
 
 ---
 
@@ -121,9 +126,10 @@ Under OWASP guidelines, endpoints must reject oversized requests before bufferin
 
 All security guarantees are continuously validated by `tests/test_security_hardening.py` (18 tests) and `tests/test_security_and_auth.py` (10 tests):
 - [x] Missing mandatory secrets fails fast with `RuntimeError`
-- [x] Valid HMAC webhook succeeds (`HTTP 200`)
-- [x] Tampered / Invalid HMAC webhook rejected (`HTTP 401`)
-- [x] Missing HMAC signature on webhook rejected (`HTTP 401`)
+- [x] Valid API key without HMAC on webhook rejected (`HTTP 401`)
+- [x] Valid API key with forged HMAC on webhook rejected (`HTTP 401`)
+- [x] Authentic HMAC signature and matching body succeeds (`HTTP 200`)
+- [x] Tampered payload modified after signing rejected (`HTTP 401`)
 - [x] Expired timestamp (> 300s) rejected (`HTTP 401`)
 - [x] Replayed webhook payload rejected (`HTTP 401`)
 - [x] Payload $> 64\text{ KB}$ rejected (`HTTP 413`)
@@ -135,4 +141,4 @@ All security guarantees are continuously validated by `tests/test_security_harde
 - [x] Revoked session rejected (`HTTP 401`)
 - [x] Rate limit exceeded returns `HTTP 429`
 
-**Audit Verdict:** 10/10 — Enterprise-grade security posture meeting all OWASP API Security and financial/educational data protection requirements.
+**Audit Conclusion:** Comprehensive multi-layered defense-in-depth architecture adhering to OWASP API Security guidelines and financial/educational data protection standards.

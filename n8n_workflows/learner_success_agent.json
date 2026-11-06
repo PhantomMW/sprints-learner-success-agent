@@ -20,7 +20,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 1. Ingest learner query and strictly validate payload\nconst body = $json.body || $json;\nconst headers = $json.headers || {};\nconst query = (body.query_text || '').trim();\nconst learnerId = (body.learner_id || '').trim();\n\nif (!learnerId) {\n  throw new Error(\"Bad Request: 'learner_id' is required and cannot be blank or unassigned.\");\n}\nif (!query) {\n  throw new Error(\"Bad Request: 'query_text' cannot be blank or contain only whitespace.\");\n}\n\nconst startTime = Date.now();\n\n// Distributed execution tracing: client-supplied or generated\nconst correlationId = headers['x-correlation-id'] || headers['X-Correlation-ID'] || body.correlation_id || ('corr-' + startTime.toString(36) + '-' + Math.random().toString(36).substring(2, 7));\n\n// Idempotency Key Handling:\n// Priority 1: Client-supplied explicit Idempotency-Key (via HTTP Header or request JSON body)\n// Priority 2: Distinct transaction UUID generated for each new incoming student request.\nlet idempotencyKey = headers['idempotency-key'] || headers['Idempotency-Key'] || body.idempotency_key;\nif (!idempotencyKey) {\n  idempotencyKey = 'idemp-tx-' + startTime.toString(36) + '-' + Math.random().toString(36).substring(2, 10).toUpperCase() + Math.random().toString(36).substring(2, 10).toUpperCase();\n}\n\n// Canonical payload string for FastAPI analysis\nconst analyzePayload = JSON.stringify({\n  learner_id: learnerId,\n  query_text: query,\n  correlation_id: correlationId,\n  idempotency_key: idempotencyKey\n});\n\nconst timestampSec = (startTime / 1000).toFixed(3);\nconst webhookSecret = (typeof $env !== 'undefined' && ($env.WEBHOOK_SECRET || $env.FASTAPI_API_KEY)) || 'sprints-webhook-secret';\nlet hmacSignature = '';\ntry {\n  const crypto = typeof require !== 'undefined' ? require('crypto') : null;\n  if (crypto) {\n    const signedData = timestampSec + '.' + analyzePayload;\n    hmacSignature = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(signedData).digest('hex');\n  }\n} catch (e) {\n  // If crypto built-in is unavailable, X-API-Key will authenticate\n}\n\nreturn {\n  learner_id: learnerId,\n  query_text: query,\n  cohort_city: body.cohort_city || 'Cairo',\n  correlation_id: correlationId,\n  idempotency_key: idempotencyKey,\n  start_time: startTime,\n  received_at: new Date(startTime).toISOString(),\n  analyze_payload: analyzePayload,\n  analyze_timestamp: timestampSec,\n  analyze_signature: hmacSignature\n};"
+        "jsCode": "// 1. Ingest learner query and strictly validate payload\nconst body = $json.body || $json;\nconst headers = $json.headers || {};\nconst query = (body.query_text || '').trim();\nconst learnerId = (body.learner_id || '').trim();\n\nif (!learnerId) {\n  throw new Error(\"Bad Request: 'learner_id' is required and cannot be blank or unassigned.\");\n}\nif (!query) {\n  throw new Error(\"Bad Request: 'query_text' cannot be blank or contain only whitespace.\");\n}\n\nconst startTime = Date.now();\n\n// Distributed execution tracing: client-supplied or generated\nconst correlationId = headers['x-correlation-id'] || headers['X-Correlation-ID'] || body.correlation_id || ('corr-' + startTime.toString(36) + '-' + Math.random().toString(36).substring(2, 7));\n\n// Idempotency Key Handling:\nlet idempotencyKey = headers['idempotency-key'] || headers['Idempotency-Key'] || body.idempotency_key;\nif (!idempotencyKey) {\n  idempotencyKey = 'idemp-tx-' + startTime.toString(36) + '-' + Math.random().toString(36).substring(2, 10).toUpperCase() + Math.random().toString(36).substring(2, 10).toUpperCase();\n}\n\n// Canonical JSON payload for internal FastAPI orchestration\nconst analyzePayload = JSON.stringify({\n  learner_id: learnerId,\n  query_text: query,\n  correlation_id: correlationId,\n  idempotency_key: idempotencyKey\n});\n\nconst timestampSec = (startTime / 1000).toFixed(3);\n\n// Strict Security: WEBHOOK_SECRET is mandatory with ZERO unauthenticated or static fallbacks\nconst webhookSecret = typeof $env !== 'undefined' ? $env.WEBHOOK_SECRET : null;\nif (!webhookSecret) {\n  throw new Error(\"FATAL SECURITY ERROR: Mandatory environment variable WEBHOOK_SECRET is not configured in n8n container. Refusing to execute unauthenticated workflow.\");\n}\n\n// Strict Security: crypto module is mandatory with ZERO bypass\nconst crypto = typeof require !== 'undefined' ? require('crypto') : null;\nif (!crypto || typeof crypto.createHmac !== 'function') {\n  throw new Error(\"FATAL SECURITY ERROR: Node.js crypto module is not available in n8n. Mandatory HMAC-SHA256 signing cannot proceed.\");\n}\n\nconst signedData = timestampSec + '.' + analyzePayload;\nconst hmacSignature = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(signedData).digest('hex');\n\nreturn {\n  learner_id: learnerId,\n  query_text: query,\n  cohort_city: body.cohort_city || 'Cairo',\n  correlation_id: correlationId,\n  idempotency_key: idempotencyKey,\n  start_time: startTime,\n  received_at: new Date(startTime).toISOString(),\n  analyze_payload: analyzePayload,\n  analyze_timestamp: timestampSec,\n  analyze_signature: hmacSignature\n};"
       },
       "id": "node-parse-query",
       "name": "Parse & Validate Query",
@@ -34,10 +34,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://sprints-ai-api:8000/api/v1/analyze",
+        "url": "http://sprints-ai-api:8000/api/v1/webhook/analyze",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ $json.analyze_payload || JSON.stringify({ learner_id: $json.learner_id, query_text: $json.query_text, correlation_id: $json.correlation_id, idempotency_key: $json.idempotency_key }) }}",
+        "jsonBody": "={{ $json.analyze_payload }}",
         "options": {
           "timeout": 1100
         },
@@ -53,16 +53,12 @@
               "value": "={{$json.idempotency_key}}"
             },
             {
-              "name": "X-API-Key",
-              "value": "={{$env.FASTAPI_API_KEY}}"
-            },
-            {
               "name": "X-Timestamp",
-              "value": "={{$json.analyze_timestamp || ''}}"
+              "value": "={{$json.analyze_timestamp}}"
             },
             {
               "name": "X-Signature-SHA256",
-              "value": "={{$json.analyze_signature || ''}}"
+              "value": "={{$json.analyze_signature}}"
             }
           ]
         }

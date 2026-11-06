@@ -435,12 +435,6 @@ def verify_hmac_sha256_signature(raw_body: bytes, signature_header: Optional[str
     if sig.startswith("sha256="):
         sig = sig.split("=", 1)[1]
 
-    if not record_and_verify_replay_token(sig, timestamp_str):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Webhook Security Error: Replay attack detected. This signed event payload has already been processed."
-        )
-
     signed_payload = f"{timestamp_str}.".encode('utf-8') + raw_body
     computed_sig = hmac.new(WEBHOOK_SECRET.encode('utf-8'), signed_payload, hashlib.sha256).hexdigest()
 
@@ -448,6 +442,12 @@ def verify_hmac_sha256_signature(raw_body: bytes, signature_header: Optional[str
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Webhook Authentication Failed: Invalid HMAC-SHA256 signature."
+        )
+
+    if not record_and_verify_replay_token(sig, timestamp_str):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Security Error: Replay attack detected. This signed event payload has already been processed."
         )
 
     return True
@@ -519,20 +519,43 @@ async def verify_api_key(
                     )
             return cookie_token
 
-    # 5. HMAC-SHA256 Webhook Signature
-    sig_header = request.headers.get("X-Signature-SHA256") or request.headers.get("X-Hub-Signature-256")
-    ts_header = request.headers.get("X-Timestamp")
-    if sig_header and ts_header:
-        body = await request.body()
-        if verify_hmac_sha256_signature(body, sig_header, ts_header):
-            return "webhook_hmac_verified"
-
     logger.warning(f"Unauthorized API request from {request.client.host if request.client else 'unknown'}")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Unauthorized: Missing or invalid API Key / Session Token. Provide 'X-API-Key: <key>', 'Authorization: Bearer <token>', or an active session cookie.",
         headers={"WWW-Authenticate": "ApiKey, Bearer, Session"}
     )
+
+async def verify_mandatory_webhook_hmac(
+    request: Request,
+    x_signature: Optional[str] = Header(None, alias="X-Signature-SHA256"),
+    x_hub_signature: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
+    x_timestamp: Optional[str] = Header(None, alias="X-Timestamp")
+) -> bool:
+    """
+    OWASP Webhook Security Standard: Dedicated Mandatory HMAC-SHA256 Authentication.
+    STRICT SEPARATION OF CONCERNS:
+    Webhook and internal orchestration routes REQUIRE cryptographic proof of origin.
+    Standard API Keys, Bearer tokens, or session cookies CANNOT bypass or substitute HMAC.
+    Even if a valid X-API-Key is present, any request missing HMAC headers, presenting
+    an invalid signature, carrying a tampered body, an expired timestamp, or a replayed
+    signature is strictly rejected with HTTP 401 Unauthorized.
+    """
+    await rate_limiter_dependency(request)
+    sig = x_signature or x_hub_signature
+    if not sig:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Missing mandatory HMAC signature header (X-Signature-SHA256). API Key alone is not permitted on webhook endpoints."
+        )
+    if not x_timestamp:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook Authentication Failed: Missing mandatory timestamp header (X-Timestamp)."
+        )
+    raw_body = await request.body()
+    verify_hmac_sha256_signature(raw_body, sig, x_timestamp)
+    return True
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -927,32 +950,15 @@ def check_session(request: Request):
 @app.post("/webhook/learner-query")
 async def secure_webhook_endpoint(
     request: Request,
-    x_signature: Optional[str] = Header(None, alias="X-Signature-SHA256"),
-    x_hub_signature: Optional[str] = Header(None, alias="X-Hub-Signature-256"),
-    x_timestamp: Optional[str] = Header(None, alias="X-Timestamp"),
+    _auth: bool = Depends(verify_mandatory_webhook_hmac),
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID")
 ):
     """
     Dedicated Secure Webhook Receiver with HMAC-SHA256 & Replay Protection:
     Validates cryptographic authenticity, prevents replay attacks, and processes query.
+    Requires mandatory HMAC-SHA256. API keys cannot bypass HMAC authentication.
     """
-    await rate_limiter_dependency(request)
     raw_body = await request.body()
-    sig = x_signature or x_hub_signature
-    
-    if not sig:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Webhook Authentication Failed: Missing signature header (X-Signature-SHA256)."
-        )
-    if not x_timestamp:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Webhook Authentication Failed: Missing timestamp header (X-Timestamp)."
-        )
-
-    verify_hmac_sha256_signature(raw_body, sig, x_timestamp)
-    
     try:
         data = json.loads(raw_body.decode('utf-8'))
         req = LearnerQueryRequest(**data)
@@ -989,6 +995,61 @@ async def secure_webhook_endpoint(
         "sla_met": latency_ms < 3500.0
     }
 
+@app.post("/api/v1/webhook/analyze")
+async def secure_webhook_analyze_endpoint(
+    request: Request,
+    _auth: bool = Depends(verify_mandatory_webhook_hmac),
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
+    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key")
+):
+    """
+    Dedicated Internal Webhook Analysis Endpoint for n8n Orchestrator.
+    Requires STRICT HMAC-SHA256 signature and replay prevention.
+    Rejects any request lacking HMAC or carrying invalid HMAC, even with valid API key.
+    """
+    start_time = time.time()
+    raw_body = await request.body()
+    try:
+        data = json.loads(raw_body.decode('utf-8'))
+        req = LearnerQueryRequest(**data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid webhook analyze payload: {str(e)}"
+        )
+
+    corr_id = req.correlation_id or x_correlation_id or f"corr-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
+    idemp_key = req.idempotency_key or idempotency_key_header or f"idemp-{corr_id}"
+
+    routing_result = deliberative_agent_router(
+        req.query_text,
+        nlp_model=GLOBAL_MODELS.get("nlp"),
+        w2v_model=GLOBAL_MODELS.get("word2vec"),
+        risk_level=req.risk_level
+    )
+    execution_latency_ms = round((time.time() - start_time) * 1000, 2)
+
+    return {
+        "webhook_authenticated": True,
+        "signature_verified": True,
+        "correlation_id": corr_id,
+        "idempotency_key": idemp_key,
+        "learner_id": req.learner_id,
+        "query_text": req.query_text,
+        "routing_decision": routing_result["routing_decision"],
+        "assigned_queue": routing_result["assigned_queue"],
+        "priority": routing_result["priority"],
+        "sentiment": routing_result["sentiment"],
+        "extracted_modules": routing_result["extracted_modules"],
+        "extracted_dates": routing_result["extracted_dates"],
+        "retrieved_chunk": routing_result["retrieved_chunk"],
+        "retrieved_knowledge": routing_result["retrieved_chunk"]["text"] if routing_result.get("retrieved_chunk") else None,
+        "agent_response": routing_result["agent_response"],
+        "action_summary": routing_result["action_summary"],
+        "execution_latency_ms": execution_latency_ms,
+        "sla_met": execution_latency_ms < 3500.0
+    }
+
 @app.get("/api/v1/health")
 def healthcheck(_rate_limit: None = Depends(rate_limiter_dependency)):
     return {
@@ -1007,12 +1068,24 @@ def healthcheck(_rate_limit: None = Depends(rate_limiter_dependency)):
     }
 
 @app.post("/api/v1/analyze")
-def analyze_learner_query(
+async def analyze_learner_query(
+    request: Request,
     req: LearnerQueryRequest,
     x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
     _auth: str = Depends(verify_api_key)
 ):
+    """
+    Sub-second endpoint for direct API analysis (Dashboard, Client SDKs).
+    Security Enforcement:
+    If caller provides HMAC headers (X-Signature-SHA256 or X-Timestamp),
+    the HMAC signature is MANDATORY and verified strictly (cannot be bypassed with API key).
+    """
+    sig_header = request.headers.get("X-Signature-SHA256") or request.headers.get("X-Hub-Signature-256")
+    ts_header = request.headers.get("X-Timestamp")
+    if sig_header or ts_header:
+        raw_body = await request.body()
+        verify_hmac_sha256_signature(raw_body, sig_header, ts_header)
     """
     Sub-second endpoint called directly by the n8n Webhook / HTTP node.
     Performs sentiment analysis, spaCy NER extraction, deliberative routing,

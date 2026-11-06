@@ -56,93 +56,118 @@ def generate_webhook_signature(body: bytes, timestamp: str, secret: str = WEBHOO
 class TestSecurityHardening:
 
     # ==========================================================================
-    # 1. n8n WEBHOOK HMAC-SHA256 SIGNATURE VERIFICATION
+    # 1. n8n WEBHOOK HMAC-SHA256 MANDATORY AUTHENTICATION & ZERO-BYPASS MATRIX
     # ==========================================================================
 
-    def test_webhook_missing_signature_returns_401(self, client):
-        """Webhooks missing X-Signature-SHA256 must be rejected with HTTP 401."""
-        payload = {"learner_id": "LRN-1002", "query_text": "What is backpropagation in PyTorch?"}
-        res = client.post("/api/v1/webhook/learner-query", json=payload)
-        assert res.status_code == 401
-        assert "Missing signature header" in res.json().get("detail", "")
+    def test_valid_api_key_without_hmac_rejected_on_webhook(self, client):
+        """1. API Key صحيح بدون HMAC -> رفض (401). API Key alone cannot bypass webhook HMAC."""
+        payload = {"learner_id": "LRN-1002", "query_text": "What is relational SQL?"}
+        for endpoint in ["/api/v1/webhook/analyze", "/api/v1/webhook/learner-query"]:
+            res = client.post(
+                endpoint,
+                json=payload,
+                headers={"Content-Type": "application/json", "X-API-Key": SPRINTS_API_KEY}
+            )
+            assert res.status_code == 401
+            assert "Missing mandatory HMAC signature header" in res.json().get("detail", "")
 
-    def test_webhook_missing_timestamp_returns_401(self, client):
-        """Webhooks with signature but missing X-Timestamp must be rejected with HTTP 401."""
-        body = json.dumps({"learner_id": "LRN-1002", "query_text": "What is backpropagation?"}).encode('utf-8')
-        sig = generate_webhook_signature(body, str(time.time()))
-        res = client.post(
-            "/api/v1/webhook/learner-query",
-            content=body,
-            headers={"Content-Type": "application/json", "X-Signature-SHA256": sig}
-        )
-        assert res.status_code == 401
-        assert "Missing timestamp header" in res.json().get("detail", "")
-
-    def test_webhook_tampered_or_invalid_signature_returns_401(self, client):
-        """Tampered payload or forged signature must fail with HTTP 401."""
-        body = json.dumps({"learner_id": "LRN-1002", "query_text": "Tampered payload"}).encode('utf-8')
+    def test_valid_api_key_with_invalid_hmac_rejected_on_webhook(self, client):
+        """2. API Key صحيح مع HMAC خاطئ -> رفض (401). Valid API Key cannot mask invalid/forged signature."""
+        body = json.dumps({"learner_id": "LRN-1002", "query_text": "What is relational SQL?"}).encode('utf-8')
         ts = str(time.time())
-        fake_sig = "sha256=" + "a" * 64
-        res = client.post(
-            "/api/v1/webhook/learner-query",
-            content=body,
-            headers={"Content-Type": "application/json", "X-Signature-SHA256": fake_sig, "X-Timestamp": ts}
-        )
-        assert res.status_code == 401
-        assert "Invalid HMAC-SHA256 signature" in res.json().get("detail", "")
+        fake_sig = "sha256=" + "f" * 64
+        for endpoint in ["/api/v1/webhook/analyze", "/api/v1/webhook/learner-query"]:
+            res = client.post(
+                endpoint,
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-API-Key": SPRINTS_API_KEY,
+                    "X-Signature-SHA256": fake_sig,
+                    "X-Timestamp": ts
+                }
+            )
+            assert res.status_code == 401
+            assert "Invalid HMAC-SHA256 signature" in res.json().get("detail", "")
 
-    def test_webhook_valid_hmac_signature_succeeds(self, client):
-        """Legitimate webhook request with authentic HMAC signature must succeed with 200."""
-        payload = {"learner_id": "LRN-1002", "query_text": "Can you explain how optimizer step works?"}
+    def test_valid_hmac_and_matching_body_accepted(self, client):
+        """3. HMAC صحيح والـ body مطابق -> قبول (200). Authentic signed payload passes cleanly."""
+        payload = {"learner_id": "LRN-1002", "query_text": "What is relational SQL?"}
         body = json.dumps(payload).encode('utf-8')
-        ts = str(time.time())
-        sig = generate_webhook_signature(body, ts)
+        for i, endpoint in enumerate(["/api/v1/webhook/analyze", "/api/v1/webhook/learner-query"]):
+            ts = str(time.time() + 10.0 + i * 2.0)
+            sig = generate_webhook_signature(body, ts)
+            res = client.post(
+                endpoint,
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Signature-SHA256": sig,
+                    "X-Timestamp": ts
+                }
+            )
+            assert res.status_code == 200
+            data = res.json()
+            assert data.get("webhook_authenticated") is True
+            assert data.get("signature_verified") is True
+            assert data.get("routing_decision") == "AUTOMATED_RAG_PIPELINE"
 
-        res = client.post(
-            "/api/v1/webhook/learner-query",
-            content=body,
-            headers={"Content-Type": "application/json", "X-Signature-SHA256": sig, "X-Timestamp": ts}
-        )
-        assert res.status_code == 200
-        data = res.json()
-        assert data.get("webhook_authenticated") is True
-        assert data.get("signature_verified") is True
-        assert data.get("routing_decision") == "AUTOMATED_RAG_PIPELINE"
+    def test_modified_body_after_signing_rejected(self, client):
+        """4. تعديل الـ body بعد التوقيع -> رفض (401). Tampering with body after signing invalidates HMAC."""
+        original_body = json.dumps({"learner_id": "LRN-1002", "query_text": "Original message"}).encode('utf-8')
+        tampered_body = json.dumps({"learner_id": "LRN-1002", "query_text": "Tampered malicious message"}).encode('utf-8')
+        for i, endpoint in enumerate(["/api/v1/webhook/analyze", "/api/v1/webhook/learner-query"]):
+            ts = str(time.time() + 20.0 + i * 2.0)
+            sig = generate_webhook_signature(original_body, ts)
+            res = client.post(
+                endpoint,
+                content=tampered_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Signature-SHA256": sig,
+                    "X-Timestamp": ts
+                }
+            )
+            assert res.status_code == 401
+            assert "Invalid HMAC-SHA256 signature" in res.json().get("detail", "")
 
-    # ==========================================================================
-    # 2. REPLAY ATTACK DEFENSE & TIMESTAMP DRIFT
-    # ==========================================================================
+    def test_expired_timestamp_rejected(self, client):
+        """5. Timestamp منتهي -> رفض (401). Timestamp drifting > 300 seconds is rejected."""
+        body = json.dumps({"learner_id": "LRN-1002", "query_text": "Expired timestamp test"}).encode('utf-8')
+        for i, endpoint in enumerate(["/api/v1/webhook/analyze", "/api/v1/webhook/learner-query"]):
+            expired_ts = str(time.time() - (450.0 + i * 10.0)) # > 300s in the past
+            sig = generate_webhook_signature(body, expired_ts)
+            res = client.post(
+                endpoint,
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Signature-SHA256": sig,
+                    "X-Timestamp": expired_ts
+                }
+            )
+            assert res.status_code == 401
+            assert "clock drift" in res.json().get("detail", "")
 
-    def test_webhook_replay_attack_rejected(self, client):
-        """Replaying the exact same signed event twice must be blocked with HTTP 401."""
-        payload = {"learner_id": "LRN-1002", "query_text": "Replay test question"}
-        body = json.dumps(payload).encode('utf-8')
-        ts = str(time.time() + 0.123)
-        sig = generate_webhook_signature(body, ts)
-        headers = {"Content-Type": "application/json", "X-Signature-SHA256": sig, "X-Timestamp": ts}
+    def test_replay_previously_accepted_request_rejected(self, client):
+        """6. إعادة إرسال طلب سبق قبوله -> رفض (401). Exact duplicate signature is caught as replay attack."""
+        body = json.dumps({"learner_id": "LRN-1002", "query_text": "Replay defense verification"}).encode('utf-8')
+        for i, endpoint in enumerate(["/api/v1/webhook/analyze", "/api/v1/webhook/learner-query"]):
+            ts = str(time.time() + 40.0 + i * 2.0)
+            sig = generate_webhook_signature(body, ts)
+            headers = {
+                "Content-Type": "application/json",
+                "X-Signature-SHA256": sig,
+                "X-Timestamp": ts
+            }
+            # First submission succeeds
+            res1 = client.post(endpoint, content=body, headers=headers)
+            assert res1.status_code == 200
 
-        # First request succeeds
-        res1 = client.post("/api/v1/webhook/learner-query", content=body, headers=headers)
-        assert res1.status_code == 200
-
-        # Immediate second identical replay must fail
-        res2 = client.post("/api/v1/webhook/learner-query", content=body, headers=headers)
-        assert res2.status_code == 401
-        assert "Replay attack detected" in res2.json().get("detail", "")
-
-    def test_webhook_stale_expired_timestamp_rejected(self, client):
-        """Requests with timestamps drifting > 300 seconds must fail with HTTP 401."""
-        body = json.dumps({"learner_id": "LRN-1002", "query_text": "Old timestamp query"}).encode('utf-8')
-        stale_ts = str(time.time() - 400.0) # 400 seconds in the past (> 300s tolerance)
-        sig = generate_webhook_signature(body, stale_ts)
-
-        res = client.post(
-            "/api/v1/webhook/learner-query",
-            content=body,
-            headers={"Content-Type": "application/json", "X-Signature-SHA256": sig, "X-Timestamp": stale_ts}
-        )
-        assert res.status_code == 401
-        assert "clock drift" in res.json().get("detail", "")
+            # Replaying the exact same signed event fails
+            res2 = client.post(endpoint, content=body, headers=headers)
+            assert res2.status_code == 401
+            assert "Replay attack detected" in res2.json().get("detail", "")
 
     # ==========================================================================
     # 3. HTTP 413 PAYLOAD TOO LARGE DEFENSE
