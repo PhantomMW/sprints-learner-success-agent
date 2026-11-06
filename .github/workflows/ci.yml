@@ -110,8 +110,8 @@ jobs:
         run: |
           docker compose up --build -d
           echo "Waiting for live services to report healthy..."
-          timeout 60 bash -c 'until curl -s http://localhost:8000/api/v1/health | grep -q healthy; do sleep 2; done'
-          timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://localhost:5678 | grep -E "200|302|401"; do sleep 3; done'
+          timeout 60 bash -c 'until curl -s http://127.0.0.1:8000/api/v1/health | grep -q healthy; do sleep 2; done' || (echo "--- Service Container Logs on Failure ---" && docker compose logs && exit 1)
+          timeout 60 bash -c 'until curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5678 | grep -E "200|302|401"; do sleep 3; done' || (echo "--- n8n Container Logs on Failure ---" && docker logs sprints_n8n_orchestrator && exit 1)
           sleep 5
           echo "Importing n8n workflow..."
           docker exec sprints_n8n_orchestrator n8n import:workflow --input=/workflows/learner_success_agent.json
