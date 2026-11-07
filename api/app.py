@@ -181,6 +181,44 @@ if not SESSION_SECRET:
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
 REDIS_URL = os.environ.get("REDIS_URL")
 
+# Mandatory Redis & Cryptographic Entropy Validation in Production
+INSECURE_SECRETS_BLACKLIST = {
+    "sprints-capstone-secret-api-key-2026",
+    "sprints_redis_vault_secret_2026",
+    "sprints_redis_prod_secure_2026",
+    "sprints_n8n_vault_encryption_key_2026",
+    "generate_secure_32_char_hex_api_key",
+    "generate_secure_32_char_hex_webhook_secret",
+    "generate_secure_32_char_hex_session_secret",
+    "generate_secure_32_char_hex_redis_password",
+    "generate_secure_32_char_hex_n8n_vault_key",
+    "your-secure-random-32char-api-key-here",
+    "your-secure-webhook-hmac-sha256-secret-here",
+    "your-secure-session-signing-secret-here",
+    "changeme",
+    "password",
+    "admin",
+    "secret"
+}
+
+if ENVIRONMENT == "production":
+    for s_name, s_val in [
+        ("SPRINTS_API_KEY", SPRINTS_API_KEY),
+        ("WEBHOOK_SECRET", WEBHOOK_SECRET),
+        ("SESSION_SECRET", SESSION_SECRET)
+    ]:
+        if s_val and (s_val.lower() in INSECURE_SECRETS_BLACKLIST or len(s_val) < 16):
+            raise RuntimeError(
+                f"FATAL SECURITY CONFIGURATION: '{s_name}' is set to an insecure default, weak, or placeholder value! "
+                f"Production deployments strictly prohibit known defaults. Please generate a high-entropy 32-character "
+                f"cryptographic secret using: `openssl rand -hex 32`."
+            )
+    if REDIS_URL and any(weak in REDIS_URL.lower() for weak in ["sprints_redis_vault_secret_2026", "sprints_redis_prod_secure_2026"]):
+        raise RuntimeError(
+            "FATAL SECURITY CONFIGURATION: REDIS_URL uses an insecure default password! "
+            "Production deployments require a unique, high-entropy password for Redis."
+        )
+
 # Mandatory Redis in Production (Multi-Worker Cluster Protection)
 if ENVIRONMENT == "production" and not REDIS_URL:
     raise RuntimeError(

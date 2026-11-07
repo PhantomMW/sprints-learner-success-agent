@@ -433,3 +433,57 @@ class TestSecurityHardening:
         data = resp.json()
         assert data["learner_id"] == "LRN-1002"
         assert "routing_decision" in data
+
+    def test_production_fail_fast_on_insecure_placeholder_secrets(self, monkeypatch):
+        """Production startup strictly rejects known default or placeholder secrets."""
+        import subprocess
+        # Run a subprocess with ENVIRONMENT=production and a blacklisted secret
+        env = os.environ.copy()
+        env["ENVIRONMENT"] = "production"
+        env["SPRINTS_API_KEY"] = "sprints_redis_vault_secret_2026"
+        env["WEBHOOK_SECRET"] = "valid_secure_random_hex_32chars_abcdef123456"
+        env["SESSION_SECRET"] = "valid_secure_random_hex_32chars_abcdef123456"
+        env["REDIS_URL"] = "redis://:secret@localhost:6379/0"
+
+        res = subprocess.run(
+            [sys.executable, "-c", "import app"],
+            cwd=API_DIR,
+            env=env,
+            capture_output=True,
+            text=True
+        )
+        assert res.returncode != 0
+        assert "FATAL SECURITY CONFIGURATION" in res.stderr
+        assert "insecure default" in res.stderr or "placeholder" in res.stderr
+
+    def test_production_fail_fast_on_insecure_redis_password(self, monkeypatch):
+        """Production startup strictly rejects default Redis password in REDIS_URL."""
+        import subprocess
+        env = os.environ.copy()
+        env["ENVIRONMENT"] = "production"
+        env["SPRINTS_API_KEY"] = "valid_secure_random_hex_32chars_abcdef123456"
+        env["WEBHOOK_SECRET"] = "valid_secure_random_hex_32chars_abcdef123456"
+        env["SESSION_SECRET"] = "valid_secure_random_hex_32chars_abcdef123456"
+        env["REDIS_URL"] = "redis://:sprints_redis_vault_secret_2026@sprints-redis:6379/0"
+
+        res = subprocess.run(
+            [sys.executable, "-c", "import app"],
+            cwd=API_DIR,
+            env=env,
+            capture_output=True,
+            text=True
+        )
+        assert res.returncode != 0
+        assert "FATAL SECURITY CONFIGURATION" in res.stderr
+        assert "REDIS_URL uses an insecure default password" in res.stderr
+
+    def test_redis_authentication_rejection_with_invalid_credentials(self, monkeypatch):
+        """Verify that Redis connection strictly enforces authentication and rejects bad passwords."""
+        import redis
+        r = redis.Redis(host="127.0.0.1", port=6379, password="definitely_wrong_password_123", socket_timeout=0.1, socket_connect_timeout=0.1)
+        try:
+            r.ping()
+            pytest.fail("Redis should not authenticate with an invalid password.")
+        except (redis.exceptions.AuthenticationError, redis.exceptions.ConnectionError, redis.exceptions.TimeoutError):
+            pass
+

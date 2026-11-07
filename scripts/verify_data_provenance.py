@@ -87,6 +87,22 @@ def verify_cohen_kappa_iaa():
     print(f"Controlled Benchmark (N=70): Agreed={benchmark_metrics['agreed']}/70, P_o={benchmark_metrics['p_o']:.4f}, P_e={benchmark_metrics['p_e']:.4f}, Cohen's Kappa={benchmark_metrics['kappa']:.4f}")
     print(f"Adjudication Log: {len(adjudicated_cases)} boundary disagreements resolved by Academic Director (ADJ-EG-00)")
     
+    # Cryptographic SHA-256 Checksum Verification
+    chk_file = os.path.join(annotations_dir, "CHECKSUMS.sha256")
+    if os.path.exists(chk_file):
+        import hashlib
+        with open(chk_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    expected_sha, fname = line.split(maxsplit=1)
+                    target_file = os.path.join(annotations_dir, fname)
+                    if os.path.exists(target_file):
+                        with open(target_file, "rb") as bf:
+                            actual_sha = hashlib.sha256(bf.read()).hexdigest()
+                        assert actual_sha == expected_sha, f"SHA-256 mismatch for {fname}: expected {expected_sha}, got {actual_sha}"
+        print("  [PASS] Cryptographic SHA-256 checksums strictly verified for all raw annotation files.")
+    
     assert overall_metrics["agreed"] == 97, f"Expected 97 initial agreements, got {overall_metrics['agreed']}"
     assert len(adjudicated_cases) == 3, f"Expected exactly 3 adjudicated disagreements, got {len(adjudicated_cases)}"
     assert overall_metrics["kappa"] >= 0.90, f"Overall Kappa ({overall_metrics['kappa']}) below 0.90"

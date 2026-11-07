@@ -274,10 +274,16 @@ Total Evaluated Benchmark Pool (100 Cases)
 3. **Temporal & Batch Sanitization:** Specific cohort numbers, internal dates, and channel links removed to prevent retrospective learner identification.
 
 ### 3. Dual-Annotator Labeling Protocol & Consensus
-* **Independent Annotation:** Labeling performed independently by two domain experts:
-  * *Annotator A:* Lead Academic Advisor (evaluating psychological distress and dropout risk).
-  * *Annotator B:* Senior Technical AI Instructor (evaluating curriculum vs technical inquiries).
-* **Inter-Annotator Reliability:** Achieved a Cohen's Kappa score of $\kappa = 0.91$, indicating near-perfect agreement.
+* **Independent Annotation:** Labeling performed strictly double-blinded and independently by two domain experts with unmerged raw records preserved in [`data/annotations/`](file:///C:/Users/mw851/sprints-learner-success-agent/data/annotations):
+  * *Annotator 1 (`ANN-EG-01`):* Dr. Mona El-Sayed, PhD in Computational Linguistics (evaluating Egyptian dialect morphology, syntactic negation, and affective valence). Raw file: [`data/annotations/annotator_1_raw.json`](file:///C:/Users/mw851/sprints-learner-success-agent/data/annotations/annotator_1_raw.json).
+  * *Annotator 2 (`ANN-EG-02`):* Eng. Ahmed Farouk, Lead Academic Mentor (evaluating pedagogical distress, submission blockers, and student retention churn risk). Raw file: [`data/annotations/annotator_2_raw.json`](file:///C:/Users/mw851/sprints-learner-success-agent/data/annotations/annotator_2_raw.json).
+  * *Adjudication Log (`ADJ-EG-00`):* Dr. Tarek Mansour, Academic Director (resolving the 3 boundary disagreements). Log: [`data/annotations/adjudication_consensus.json`](file:///C:/Users/mw851/sprints-learner-success-agent/data/annotations/adjudication_consensus.json).
+* **Inter-Annotator Reliability Audit (Cohen's Kappa):**
+  * **Overall Benchmark (N=100):** $P_o = 97.00\%$, $P_e = 50.12\%$, **Cohen's Kappa $\kappa = 0.9399$** ($\approx 0.940$, Almost Perfect Agreement).
+  * **Real Cohort Chat (N=30):** $P_o = 96.67\%$, $P_e = 50.44\%$, **Cohen's Kappa $\kappa = 0.9327$** ($\approx 0.933$, Almost Perfect Agreement).
+  * **Controlled Benchmark (N=70):** $P_o = 97.14\%$, $P_e = 50.04\%$, **Cohen's Kappa $\kappa = 0.9428$** ($\approx 0.943$, Almost Perfect Agreement).
+  * Full protocol & IRB consent documentation: [`data/annotations/DATA_PROVENANCE_AND_IRB_PROTOCOL.md`](file:///C:/Users/mw851/sprints-learner-success-agent/data/annotations/DATA_PROVENANCE_AND_IRB_PROTOCOL.md).
+  * Cryptographic integrity hashes: [`data/annotations/CHECKSUMS.sha256`](file:///C:/Users/mw851/sprints-learner-success-agent/data/annotations/CHECKSUMS.sha256).
 * **Structured Disambiguation Rubric:**
   * *Technical Task Inability (Automated RAG):* Functional inability to perform a specific action (e.g. `"مش قادر أفتح ملف المحاضرة"`, `"السيستم ساقط"`) without affective distress stems is routed to Automated Curriculum RAG with zero false escalation ($0\text{ FP}$).
   * *Severe Emotional Distress (Critical Escalation):* Affective frustration, feeling lost, or despair (e.g. `"أنا محبط جداً ومش قادر أكمل ومخنوق خالص"`) triggers immediate human escalation with Critical priority.
@@ -392,16 +398,22 @@ python tests/test_feature_parity.py
 node tests/test_n8n_workflow_engine.js
 ```
 
-### 6. Launch via Docker Compose (n8n + API)
+### 6. Launch via Docker Compose (n8n + API + Redis)
 ```bash
+# 1. Initialize environment template with cryptographically strong secrets
+cp .env.example .env
+# Fill mandatory variables (SPRINTS_API_KEY, REDIS_PASSWORD, etc.) using `openssl rand -hex 32`
+
+# 2. Build and launch multi-container stack
 docker compose up --build -d
 
-# Verify live n8n orchestrator integration & SQLite webhook persistence
+# 3. Verify live n8n orchestrator integration & SQLite webhook persistence
 python tests/test_n8n_docker_integration.py
 ```
 * Access **n8n Web UI** at: `http://localhost:5678`
-* Import workflow from `n8n_workflows/learner_success_agent.json`
 * Access **FastAPI Docs** at: `http://localhost:8000/docs`
+* Access **Interactive Live Dashboard** at: `http://localhost:8000/`
+* Production Operations & Secret Rotation: [`deploy/PRODUCTION_OPERATIONS_MANUAL.md`](file:///C:/Users/mw851/sprints-learner-success-agent/deploy/PRODUCTION_OPERATIONS_MANUAL.md)
 
 ---
 

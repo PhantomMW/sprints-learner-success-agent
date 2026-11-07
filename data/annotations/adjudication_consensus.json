@@ -7,8 +7,9 @@
     "annotator_2_label": "ESCALATE",
     "consensus_label": "ESCALATE",
     "adjudicator_id": "ADJ-EG-00",
+    "adjudicator_name": "Dr. Tarek Mansour",
     "adjudicator_role": "Academic Director & Curriculum Architect",
-    "adjudication_rationale": "Explicit statement of dropout intention ('نويت أنسحب خلاص') constitutes immediate learner churn risk. Immediate human mentor outreach required.",
+    "adjudication_rationale": "ANN-EG-01 flagged ambiguous linguistic structure, but ANN-EG-02 correctly highlighted explicit dropout commitment ('نويت أنسحب خلاص'). Churn prevention protocol takes precedence. Consensus ruled: ESCALATE.",
     "adjudicated_at": "2026-10-27T16:30:00Z"
   },
   {
@@ -19,8 +20,9 @@
     "annotator_2_label": "RAG",
     "consensus_label": "RAG",
     "adjudicator_id": "ADJ-EG-00",
+    "adjudicator_name": "Dr. Tarek Mansour",
     "adjudicator_role": "Academic Director & Curriculum Architect",
-    "adjudication_rationale": "Student clarifies system is operational ('شغال عادي'). Low priority platform latency observation, no active learning blocker. Routed to automated RAG.",
+    "adjudication_rationale": "ANN-EG-01 interpreted 'السيستم واقف' as critical outage, but student followed up clarifying 'شغال عادي بس بطيء شوية'. ANN-EG-02 correctly classified as low-severity platform observation. Consensus ruled: RAG.",
     "adjudicated_at": "2026-10-27T16:30:00Z"
   },
   {
@@ -31,8 +33,9 @@
     "annotator_2_label": "ESCALATE",
     "consensus_label": "ESCALATE",
     "adjudicator_id": "ADJ-EG-00",
+    "adjudicator_name": "Dr. Tarek Mansour",
     "adjudicator_role": "Academic Director & Curriculum Architect",
-    "adjudication_rationale": "Authentic dialectal distress idiom ('فاضل تكه وهسيب التراك') denotes acute frustration and imminent abandonment. Urgent 1-on-1 human escalation required.",
+    "adjudication_rationale": "ANN-EG-02 treated as technical doubt, but ANN-EG-01 correctly noted Egyptian dialect idiom 'فاضل تكه وهسيب التراك' which expresses acute exhaustion and imminent dropout. Immediate 1-on-1 human escalation required. Consensus ruled: ESCALATE.",
     "adjudicated_at": "2026-10-27T16:30:00Z"
   }
 ]

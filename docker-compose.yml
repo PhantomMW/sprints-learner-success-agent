@@ -2,14 +2,14 @@ services:
   sprints-redis:
     image: redis:7-alpine
     container_name: sprints_redis_cache
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-sprints_redis_vault_secret_2026}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?FATAL_REDIS_PASSWORD_must_be_configured_in_env}
     expose:
       - "6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-sprints_redis_vault_secret_2026}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?FATAL_REDIS_PASSWORD_must_be_configured_in_env}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -25,13 +25,13 @@ services:
       - ./database:/app/database
     environment:
       - PYTHONUNBUFFERED=1
-      - SPRINTS_API_KEY=${SPRINTS_API_KEY}
+      - SPRINTS_API_KEY=${SPRINTS_API_KEY:?FATAL_SPRINTS_API_KEY_must_be_configured_in_env}
       - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
-      - SESSION_SECRET=${SESSION_SECRET}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:?FATAL_WEBHOOK_SECRET_must_be_configured_in_env}
+      - SESSION_SECRET=${SESSION_SECRET:?FATAL_SESSION_SECRET_must_be_configured_in_env}
       - MAX_PAYLOAD_SIZE=${MAX_PAYLOAD_SIZE:-65536}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-sprints_redis_vault_secret_2026}
-      - REDIS_URL=${REDIS_URL:-redis://:${REDIS_PASSWORD:-sprints_redis_vault_secret_2026}@sprints-redis:6379/0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?FATAL_REDIS_PASSWORD_must_be_configured_in_env}
+      - REDIS_URL=${REDIS_URL:-redis://:${REDIS_PASSWORD}@sprints-redis:6379/0}
       - ENVIRONMENT=${ENVIRONMENT:-production}
     depends_on:
       sprints-redis:
@@ -50,7 +50,7 @@ services:
       - WEBHOOK_URL=http://localhost:5678/
       - FASTAPI_BASE_URL=http://sprints-ai-api:8000
       - FASTAPI_API_KEY=${FASTAPI_API_KEY:-}
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-sprints_n8n_vault_encryption_key_2026}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?FATAL_N8N_ENCRYPTION_KEY_must_be_configured_in_env}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=true
       - NODE_FUNCTION_ALLOW_BUILTIN=
       - GENERIC_TIMEZONE=Africa/Cairo

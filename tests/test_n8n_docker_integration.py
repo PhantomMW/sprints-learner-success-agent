@@ -76,11 +76,17 @@ def auto_import_workflow_if_docker(container_name: str = "sprints_n8n_orchestrat
                     "value": api_key
                 }
             }])
-            subprocess.run([
+            res_cred = subprocess.run([
                 "docker", "exec", container_name,
                 "sh", "-c",
                 f"echo '{cred_payload}' > /tmp/sprints_creds.json && n8n import:credentials --input=/tmp/sprints_creds.json && rm -f /tmp/sprints_creds.json"
             ], capture_output=True, text=True, timeout=20)
+            if res_cred.returncode != 0:
+                print(f"   [ERROR] n8n credential import failed (code {res_cred.returncode}):")
+                print("   STDOUT:", res_cred.stdout)
+                print("   STDERR:", res_cred.stderr)
+                raise RuntimeError(f"Credential import failed (exit code {res_cred.returncode}): {res_cred.stderr.strip()}")
+            print(f"   [PASS] Credentials imported successfully.")
 
             print("   [SETUP] Auto-importing workflow from /workflows/learner_success_agent.json...")
             
