@@ -99,7 +99,8 @@ def verify_cohen_kappa_iaa():
                     target_file = os.path.join(annotations_dir, fname)
                     if os.path.exists(target_file):
                         with open(target_file, "rb") as bf:
-                            actual_sha = hashlib.sha256(bf.read()).hexdigest()
+                            raw_bytes = bf.read().replace(b"\r\n", b"\n")
+                            actual_sha = hashlib.sha256(raw_bytes).hexdigest()
                         assert actual_sha == expected_sha, f"SHA-256 mismatch for {fname}: expected {expected_sha}, got {actual_sha}"
         print("  [PASS] Cryptographic SHA-256 checksums strictly verified for all raw annotation files.")
     
